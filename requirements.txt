@@ -1,0 +1,4 @@
+tornado
+hivemind-plugin-manager
+poorman_handshake>=0.1.0
+pyOpenSSL
