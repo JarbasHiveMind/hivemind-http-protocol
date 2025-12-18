@@ -1,12 +1,12 @@
 # Changelog
 
-## [0.0.1a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.1a2) (2025-01-07)
+## [0.0.2a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a1) (2025-12-18)
 
-[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/ce902ba01ef3c753f9ec837445a2ac4141d18abf...0.0.1a2)
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.1...0.0.2a1)
 
 **Merged pull requests:**
 
-- improve thread safety [\#1](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/1) ([JarbasAl](https://github.com/JarbasAl))
+- Configure Renovate [\#2](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/2) ([renovate[bot]](https://github.com/apps/renovate))
 
 
 
