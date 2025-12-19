@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.2a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a2) (2025-12-19)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a1...0.0.2a2)
+
+**Merged pull requests:**
+
+- Update actions/setup-python action to v6 [\#7](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/7) ([renovate[bot]](https://github.com/apps/renovate))
+
 ## [0.0.2a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a1) (2025-12-18)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.1...0.0.2a1)
