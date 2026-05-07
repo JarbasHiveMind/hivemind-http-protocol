@@ -11,21 +11,11 @@ jobs:
     secrets: inherit
     with:
       python_versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
-      install_extras: ''
-      test_path: 'tests'
 
-  e2e_tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install package
-        run: |
-          pip install .
-      - name: Run E2E Tests
-        run: |
-          pip install "hivescope @ git+https://github.com/JarbasHiveMind/hivescope@dev"
-          pytest tests/e2e/ -v
+  e2e:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+    secrets: inherit
+    with:
+      python_versions: '["3.11"]'
+      pre_install_pip: '"hivescope @ git+https://github.com/JarbasHiveMind/hivescope@dev"'
+      test_path: 'tests/e2e/'
