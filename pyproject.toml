@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hivemind-http-protocol"
+dynamic = ["version"]
+description = "http network protocol for hivemind-core"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "jarbasAi", email = "jarbasai@mailfence.com"}
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "tornado",
+    "hivemind-plugin-manager",
+    "poorman_handshake>=0.1.0",
+    "pyOpenSSL",
+]
+
+[project.urls]
+Homepage = "https://github.com/JarbasHiveMind/hivemind-http-protocol"
+
+[project.entry-points."hivemind.network.protocol"]
+hivemind-http-plugin = "hivemind_http_protocol:HiveMindHttpProtocol"
+
+[tool.setuptools]
+packages = ["hivemind_http_protocol"]
+
+[tool.setuptools.dynamic]
+version = {attr = "hivemind_http_protocol.version.__version__"}
