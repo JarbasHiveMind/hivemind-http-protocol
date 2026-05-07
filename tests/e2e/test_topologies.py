@@ -15,8 +15,8 @@ from hivescope.assertions import (
 
 def test_three_satellites_handshake():
     b = three_satellites()
-    b.start_all()
     try:
+        b.start_all()
         m = b.get_master("M0")
         for i in range(3):
             s = b.get_satellite(f"S{i}")
@@ -28,8 +28,8 @@ def test_three_satellites_handshake():
 
 def test_disconnect_clears_peer():
     b = three_satellites()
-    b.start_all()
     try:
+        b.start_all()
         m = b.get_master("M0")
         s1 = b.get_satellite("S1")
         assert s1.peer in m.connected_peers()
