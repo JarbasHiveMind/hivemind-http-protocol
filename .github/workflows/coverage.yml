@@ -13,5 +13,5 @@ jobs:
       python_version: '3.11'
       coverage_source: 'hivemind_http_protocol'
       test_path: 'tests/'
-      install_extras: ''
+      pre_install_pip: '"hivescope @ git+https://github.com/JarbasHiveMind/hivescope@dev"'
       min_coverage: 0
