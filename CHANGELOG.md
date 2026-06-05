@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.2a3](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a3) (2026-06-05)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a2...0.0.2a3)
+
+**Merged pull requests:**
+
+- docs: zero-to-hero README and /docs coverage [\#10](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/10) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.2a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a2) (2025-12-19)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a1...0.0.2a2)
