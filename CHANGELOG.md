@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.3a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.3a1) (2026-06-06)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a3...0.0.3a1)
+
+**Merged pull requests:**
+
+- fix: drop removed message\_blacklist read \(+ sha256 cert\) [\#13](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/13) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.2a3](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.2a3) (2026-06-05)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a2...0.0.2a3)
