@@ -96,7 +96,7 @@ def _make_handler(cls, auth_value, proto, *, extra_get_arg=None):
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
