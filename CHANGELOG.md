@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.4a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.4a1) (2026-07-04)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.3a1...0.0.4a1)
+
+**Merged pull requests:**
+
+- fix: pin poorman-handshake\>=2.0.0a1 + disable-able runtime password backstop [\#15](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/15) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.3a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.3a1) (2026-06-06)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.2a3...0.0.3a1)
