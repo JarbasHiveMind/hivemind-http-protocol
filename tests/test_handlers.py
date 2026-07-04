@@ -96,7 +96,7 @@ def _make_handler(cls, auth_value, proto, *, extra_get_arg=None):
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,8 @@ class TestGetClient:
         _clean_class_state()
         HiveMindHttpHandler.hm_protocol = proto
 
-        user = _make_user(password="hunter2")
+        # password must satisfy the runtime strength backstop (poorman-handshake 2.x)
+        user = _make_user(password="correct-horse-battery-staple-9$")
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             result = h.get_client("agent", "pwdkey", cache=False)
@@ -421,7 +422,7 @@ class TestSendMessageHandler:
 
     def test_send_exception_returns_500(self, master):
         proto = master.hm_protocol
-        with patch.object(proto.db, "sync", side_effect=RuntimeError("boom")):
+        with patch.object(proto, "handle_message", side_effect=RuntimeError("boom")):
             h = _make_handler(SendMessageHandler, _encode("agent:errkey"), proto,
                               extra_get_arg={"message": "msg"})
             SendMessageHandler.clients["errkey"] = MagicMock()
