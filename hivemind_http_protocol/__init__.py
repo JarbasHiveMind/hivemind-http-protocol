@@ -20,7 +20,14 @@ from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 
 from hivemind_bus_client.message import HiveMessageType
-from hivemind_core.config import runtime_password_min_bits
+try:
+    from hivemind_core.config import runtime_password_min_bits
+except ImportError:  # released hivemind-core without the helper
+    import os
+
+    def runtime_password_min_bits():
+        return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
+
 from hivemind_core.protocol import (
     HiveMindListenerProtocol,
     HiveMindClientConnection,
