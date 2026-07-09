@@ -4,7 +4,6 @@ Targets:
 - db.sync() runs only after an api-key miss, debounced across requests.
 - do_disconnect() drops both message queues, not just the text one.
 """
-from queue import Queue
 from types import SimpleNamespace
 
 import pytest

@@ -75,7 +75,7 @@ class HiveMindHttpProtocol(NetworkProtocol):
             cert_file = f"{cert_dir}/{cert_name}.crt"
             key_file = f"{cert_dir}/{cert_name}.key"
             if not os.path.isfile(key_file):
-                LOG.info(f"Generating self-signed SSL certificate")
+                LOG.info("Generating self-signed SSL certificate")
                 cert_file, key_file = self.create_self_signed_cert(cert_dir, cert_name)
             LOG.debug("Using SSL key at " + key_file)
             LOG.debug("Using SSL certificate at " + cert_file)
@@ -150,12 +150,12 @@ class ClientDatabaseSync:
     def __init__(self, debounce_s: float = 1.0):
         self.debounce_s = debounce_s
         self._lock = threading.Lock()
-        self._last_ts = 0.0
+        self._last_ts: Optional[float] = None
         self._last_error: Optional[Exception] = None
 
     def reset(self) -> None:
         with self._lock:
-            self._last_ts = 0.0
+            self._last_ts = None
             self._last_error = None
 
     def sync(self, db: Any) -> None:
@@ -164,7 +164,7 @@ class ClientDatabaseSync:
             return
         with self._lock:
             now = time.monotonic()
-            if now - self._last_ts < self.debounce_s:
+            if self._last_ts is not None and now - self._last_ts < self.debounce_s:
                 if self._last_error is not None:
                     raise self._last_error
                 return
@@ -360,7 +360,7 @@ class GetMessagesHandler(HiveMindHttpHandler):
                 try:
                     message = queue.get_nowait()
                     messages.append(message)
-                except Exception as e:
+                except Exception:
                     # Handle unexpected errors (unlikely with get_nowait)
                     break
             self.write({"status": "messages retrieved", "messages": messages})
@@ -392,7 +392,7 @@ class GetBinMessagesHandler(HiveMindHttpHandler):
                 try:
                     message = queue.get_nowait()
                     messages.append(message)
-                except Exception as e:
+                except Exception:
                     # Handle unexpected errors (unlikely with get_nowait)
                     break
 
