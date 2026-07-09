@@ -3,6 +3,8 @@ import dataclasses
 import os
 import os.path
 import random
+import threading
+import time
 from collections import defaultdict
 from queue import Queue
 from os import makedirs
@@ -133,6 +135,49 @@ class HiveMindHttpProtocol(NetworkProtocol):
         return cert_path, key_path
 
 
+class ClientDatabaseSync:
+    """Collapses concurrent ``db.sync()`` calls into one per ``debounce_s``.
+
+    HTTP is request-oriented, so an unknown api-key would otherwise sync the
+    database once per request rather than once per connection. One instance
+    is shared by every handler, so the state is deliberately process-wide.
+
+    A failing sync is remembered for the rest of the window and re-raised at
+    the callers that arrive during it, rather than each of them retrying a
+    database that has just proven unreachable.
+    """
+
+    def __init__(self, debounce_s: float = 1.0):
+        self.debounce_s = debounce_s
+        self._lock = threading.Lock()
+        self._last_ts = 0.0
+        self._last_error: Optional[Exception] = None
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last_ts = 0.0
+            self._last_error = None
+
+    def sync(self, db: Any) -> None:
+        sync = getattr(db, "sync", None)
+        if not callable(sync):
+            return
+        with self._lock:
+            now = time.monotonic()
+            if now - self._last_ts < self.debounce_s:
+                if self._last_error is not None:
+                    raise self._last_error
+                return
+            self._last_ts = now
+            try:
+                sync()
+            except Exception as exc:
+                self._last_error = exc
+                raise
+            else:
+                self._last_error = None
+
+
 class HiveMindHttpHandler(web.RequestHandler):
     """Base handler for HTTP requests."""
     hm_protocol = None
@@ -141,6 +186,7 @@ class HiveMindHttpHandler(web.RequestHandler):
     clients: Dict[str, HiveMindClientConnection] = {}
     undelivered: Dict[str, Queue] = defaultdict(Queue)  # Non-binary messages
     undelivered_bin: Dict[str, Queue] = defaultdict(Queue)  # Binary messages
+    db_sync = ClientDatabaseSync()
 
     def decode_auth(self):
         auth = self.get_argument("authorization", "")
@@ -163,10 +209,9 @@ class HiveMindHttpHandler(web.RequestHandler):
                 self.undelivered[key].put(payload)
 
         def do_disconnect():
-            if key in self.undelivered:
-                self.undelivered.pop(key)
-            if key in self.clients:
-                self.clients.pop(key)
+            self.undelivered.pop(key, None)
+            self.undelivered_bin.pop(key, None)
+            self.clients.pop(key, None)
 
         client = HiveMindClientConnection(
             key=key,
@@ -176,8 +221,13 @@ class HiveMindHttpHandler(web.RequestHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
-        self.hm_protocol.db.sync()
         user = self.hm_protocol.db.get_client_by_api_key(key)
+        if not user:
+            # the key may have been added since the last sync; refresh once
+            # per debounce window and look again before rejecting. Syncing
+            # first would let any unknown key drive a sync per request.
+            self.db_sync.sync(self.hm_protocol.db)
+            user = self.hm_protocol.db.get_client_by_api_key(key)
         if not user:
             LOG.error("Client provided an invalid Access key")
             self.hm_protocol.handle_invalid_key_connected(client)
