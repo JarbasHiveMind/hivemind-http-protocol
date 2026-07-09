@@ -185,8 +185,6 @@ class HiveMindHttpHandler(web.RequestHandler):
 
         client.name = f"{useragent}::{user.client_id}::{user.name}"
         client.crypto_key = user.crypto_key
-        client.skill_blacklist = user.skill_blacklist or []
-        client.intent_blacklist = user.intent_blacklist or []
         client.allowed_types = user.allowed_types
         client.can_propagate = user.can_propagate
         client.can_escalate = user.can_escalate

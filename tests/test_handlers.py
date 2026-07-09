@@ -46,8 +46,6 @@ def _make_user(
     client_id=42,
     name="testclient",
     crypto_key="cryptokey",
-    skill_blacklist=None,
-    intent_blacklist=None,
     allowed_types=None,
     can_propagate=True,
     can_escalate=True,
@@ -58,8 +56,6 @@ def _make_user(
     u.client_id = client_id
     u.name = name
     u.crypto_key = crypto_key
-    u.skill_blacklist = skill_blacklist
-    u.intent_blacklist = intent_blacklist
     u.allowed_types = allowed_types or []
     u.can_propagate = can_propagate
     u.can_escalate = can_escalate
@@ -227,28 +223,6 @@ class TestGetClient:
             client.disconnect()
             assert "disckey" not in HiveMindHttpHandler.clients
             assert "disckey" not in HiveMindHttpHandler.undelivered
-
-    def test_skill_blacklist_none_defaults_to_empty(self, master):
-        proto = master.hm_protocol
-        _clean_class_state()
-        HiveMindHttpHandler.hm_protocol = proto
-
-        user = _make_user(skill_blacklist=None)
-        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
-            h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
-            client = h.get_client("agent", "blkey", cache=False)
-            assert client.skill_blacklist == []
-
-    def test_intent_blacklist_none_defaults_to_empty(self, master):
-        proto = master.hm_protocol
-        _clean_class_state()
-        HiveMindHttpHandler.hm_protocol = proto
-
-        user = _make_user(intent_blacklist=None)
-        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
-            h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
-            client = h.get_client("agent", "iblkey", cache=False)
-            assert client.intent_blacklist == []
 
 
 # ---------------------------------------------------------------------------
