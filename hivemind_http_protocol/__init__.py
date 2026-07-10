@@ -82,6 +82,13 @@ def _redis_config_from_server() -> Dict[str, Any]:
     return dict(config)
 
 
+def _redis_session_prefix_from_config(config: Dict[str, Any]) -> str:
+    db_prefix = config.get("index_prefix") or config.get("prefix")
+    if not db_prefix:
+        return "hivemind-http"
+    return f"{str(db_prefix).strip(':')}:hivemind-http"
+
+
 @dataclasses.dataclass
 class HiveMindHttpProtocol(NetworkProtocol):
     """
@@ -332,8 +339,7 @@ class HiveMindHttpHandler(web.RequestHandler):
             )
             prefix = config.get("session_prefix")
             if not prefix:
-                db_prefix = redis_config.get("index_prefix") or redis_config.get("prefix")
-                prefix = f"hivemind-http:{db_prefix}" if db_prefix else "hivemind-http"
+                prefix = _redis_session_prefix_from_config(redis_config)
             cls.redis_state = RedisHttpSessionState(
                 redis_url=redis_url,
                 prefix=str(prefix),

@@ -12,6 +12,7 @@ from hivemind_http_protocol import (
     ClientDatabaseSync,
     HiveMindHttpHandler,
     _redis_config_from_server,
+    _redis_session_prefix_from_config,
     _redis_url_from_config,
 )
 
@@ -211,3 +212,15 @@ def test_redis_config_from_server_ignores_non_redis_backend(monkeypatch):
         },
     )
     assert _redis_config_from_server() == {}
+
+
+def test_redis_session_prefix_stays_inside_database_keyspace():
+    assert (
+        _redis_session_prefix_from_config({"index_prefix": "hub-prefix"})
+        == "hub-prefix:hivemind-http"
+    )
+    assert (
+        _redis_session_prefix_from_config({"index_prefix": "hub-prefix:"})
+        == "hub-prefix:hivemind-http"
+    )
+    assert _redis_session_prefix_from_config({}) == "hivemind-http"
