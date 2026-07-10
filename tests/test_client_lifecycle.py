@@ -55,6 +55,8 @@ def _reset_handler_state():
     HiveMindHttpHandler.clients.clear()
     HiveMindHttpHandler.undelivered.clear()
     HiveMindHttpHandler.undelivered_bin.clear()
+    HiveMindHttpHandler.session_backend = "memory"
+    HiveMindHttpHandler.redis_state = None
     HiveMindHttpHandler.db_sync.reset()
 
 

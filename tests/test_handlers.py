@@ -10,7 +10,7 @@ to keep tests deterministic and side-effect-free.
 import asyncio
 from collections import defaultdict
 from queue import Queue
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pybase64
 import pytest
@@ -32,7 +32,7 @@ from hivemind_http_protocol import (
 @pytest.fixture(scope="module")
 def master():
     """One MasterNode reused across all tests in this module."""
-    hivescope = pytest.importorskip("hivescope")
+    pytest.importorskip("hivescope")
     from hivescope.node import MasterNode
     return MasterNode.create("HH", require_crypto=False, handshake_enabled=True)
 
@@ -69,6 +69,35 @@ def _clean_class_state():
     HiveMindHttpHandler.clients = {}
     HiveMindHttpHandler.undelivered = defaultdict(Queue)
     HiveMindHttpHandler.undelivered_bin = defaultdict(Queue)
+    HiveMindHttpHandler.session_backend = "memory"
+    HiveMindHttpHandler.redis_state = None
+    HiveMindHttpHandler.db_sync.reset()
+
+
+class _FakeRedisState:
+    def __init__(self):
+        self.connected = set()
+        self.messages = defaultdict(list)
+        self.bin_messages = defaultdict(list)
+
+    def connect(self, key, replica_id):
+        self.connected.add(key)
+
+    def is_connected(self, key):
+        return key in self.connected
+
+    def disconnect(self, key):
+        self.connected.discard(key)
+        self.messages.pop(key, None)
+        self.bin_messages.pop(key, None)
+
+    def enqueue(self, key, payload, is_bin):
+        target = self.bin_messages if is_bin else self.messages
+        target[key].append(payload)
+
+    def drain(self, key, is_bin):
+        target = self.bin_messages if is_bin else self.messages
+        return target.pop(key, [])
 
 
 def _make_handler(cls, auth_value, proto, *, extra_get_arg=None):
@@ -78,6 +107,8 @@ def _make_handler(cls, auth_value, proto, *, extra_get_arg=None):
 
     h = cls.__new__(cls)
     h.set_status = MagicMock()
+    h.set_cookie = MagicMock()
+    h.set_header = MagicMock()
     h.write = MagicMock()
 
     def _get_arg(name, default=""):
@@ -309,6 +340,20 @@ class TestDisconnectHandler:
                 mock_disc.assert_called_once()
                 h.write.assert_called_with({"status": "Disconnected"})
 
+    def test_shared_session_disconnects_without_local_client(self, master):
+        proto = master.hm_protocol
+        h = _make_handler(DisconnectHandler, _encode("agent:sharedkey"), proto)
+        h.redis_state = _FakeRedisState()
+        h.session_backend = "redis"
+        h.redis_state.connect("sharedkey", "other-replica")
+
+        with patch.object(proto, "handle_client_disconnected") as mock_disc:
+            _run(h.post())
+
+        mock_disc.assert_not_called()
+        assert not h.redis_state.is_connected("sharedkey")
+        h.write.assert_called_with({"status": "Disconnected"})
+
     def test_disconnect_exception_returns_500(self, master):
         proto = master.hm_protocol
         user = _make_user()
@@ -373,6 +418,33 @@ class TestSendMessageHandler:
                 mock_handle.assert_called_once()
                 h.write.assert_called_with({"status": "message sent"})
 
+    def test_shared_session_reconnects_local_client_before_dispatch(self, master):
+        proto = master.hm_protocol
+        user = _make_user()
+
+        from hivemind_bus_client.message import HiveMessage, HiveMessageType
+        from ovos_bus_client.message import Message
+        bus_msg = Message("test_msg", {})
+        hive_msg = HiveMessage(HiveMessageType.BUS, payload=bus_msg)
+
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_new_client") as mock_new:
+                with patch.object(proto, "handle_message") as mock_handle:
+                    h = _make_handler(SendMessageHandler, _encode("agent:sharedsend"), proto,
+                                      extra_get_arg={"message": "encoded_payload"})
+                    h.redis_state = _FakeRedisState()
+                    h.session_backend = "redis"
+                    h.redis_state.connect("sharedsend", "other-replica")
+                    with patch.object(h, "get_client") as mock_get_client:
+                        mock_client = MagicMock()
+                        mock_client.decode.return_value = hive_msg
+                        mock_get_client.return_value = mock_client
+                        _run(h.post())
+
+        mock_new.assert_called_once_with(mock_client)
+        mock_handle.assert_called_once()
+        h.write.assert_called_with({"status": "message sent"})
+
     def test_b64_audio_message_dispatched(self, master):
         proto = master.hm_protocol
         user = _make_user()
@@ -436,6 +508,19 @@ class TestGetMessagesHandler:
         HiveMindHttpHandler.undelivered["qkey"].put("msg1")
         HiveMindHttpHandler.undelivered["qkey"].put("msg2")
         _run(h.get())
+        h.write.assert_called_with({"status": "messages retrieved", "messages": ["msg1", "msg2"]})
+
+    def test_shared_session_messages_are_returned_without_local_client(self, master):
+        proto = master.hm_protocol
+        h = _make_handler(GetMessagesHandler, _encode("agent:sharedq"), proto)
+        h.redis_state = _FakeRedisState()
+        h.session_backend = "redis"
+        h.redis_state.connect("sharedq", "other-replica")
+        h.redis_state.enqueue("sharedq", "msg1", False)
+        h.redis_state.enqueue("sharedq", "msg2", False)
+
+        _run(h.get())
+
         h.write.assert_called_with({"status": "messages retrieved", "messages": ["msg1", "msg2"]})
 
     def test_get_messages_exception_returns_500(self, master):

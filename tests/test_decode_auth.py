@@ -7,8 +7,7 @@ API key.  When the parameter is absent or malformed the method returns
 (None, None) with a 400 status set.
 """
 import pybase64
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from hivemind_http_protocol import HiveMindHttpHandler
 

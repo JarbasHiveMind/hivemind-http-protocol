@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import json
 import os
 import os.path
 import random
@@ -40,6 +41,13 @@ from hivemind_plugin_manager.protocols import NetworkProtocol
 from poorman_handshake import PasswordHandShake
 
 
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclasses.dataclass
 class HiveMindHttpProtocol(NetworkProtocol):
     """
@@ -56,6 +64,7 @@ class HiveMindHttpProtocol(NetworkProtocol):
         LOG.debug(f"HTTP server config: {self.config}")
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
         HiveMindHttpHandler.hm_protocol = self.hm_protocol
+        HiveMindHttpHandler.configure_session_state(self.config)
 
         ssl = self.config.get("ssl", False)
         cert_dir: str = self.config.get("cert_dir") or f"{xdg_data_home()}/hivemind"
@@ -178,15 +187,194 @@ class ClientDatabaseSync:
                 self._last_error = None
 
 
+class RedisHttpSessionState:
+    """Shared HTTP session state for multi-replica deployments.
+
+    The HTTP protocol buffers outbound messages until the client polls for
+    them. With multiple listener replicas, process memory is not enough: the
+    request that sends a message and the request that polls for replies may
+    land on different pods. This store keeps only the small pieces that need
+    to cross replicas: the connected flag and the pending text/binary queues.
+    """
+
+    def __init__(
+            self,
+            redis_url: str,
+            prefix: str = "hivemind-http",
+            session_ttl_s: int = 3600,
+            queue_ttl_s: int = 300
+    ):
+        if not redis_url:
+            raise ValueError("redis_url is required for Redis HTTP session state")
+        try:
+            import redis
+        except ImportError as exc:
+            raise RuntimeError(
+                "Install hivemind-http-protocol[redis] or redis to use "
+                "Redis HTTP session state"
+            ) from exc
+        self.client = redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_timeout=1.0,
+            socket_connect_timeout=1.0,
+        )
+        self.prefix = prefix.strip(":") or "hivemind-http"
+        self.session_ttl_s = session_ttl_s
+        self.queue_ttl_s = queue_ttl_s
+
+    def _key(self, key: str, suffix: str) -> str:
+        return f"{self.prefix}:{suffix}:{key}"
+
+    def connect(self, key: str, replica_id: str) -> None:
+        value = json.dumps({"replica_id": replica_id, "ts": time.time()})
+        self.client.setex(self._key(key, "session"), self.session_ttl_s, value)
+
+    def touch(self, key: str) -> None:
+        self.client.expire(self._key(key, "session"), self.session_ttl_s)
+
+    def is_connected(self, key: str) -> bool:
+        return bool(self.client.exists(self._key(key, "session")))
+
+    def disconnect(self, key: str) -> None:
+        self.client.delete(
+            self._key(key, "session"),
+            self._key(key, "messages"),
+            self._key(key, "bin_messages")
+        )
+
+    def enqueue(self, key: str, payload: str, is_bin: bool) -> None:
+        queue_key = self._key(key, "bin_messages" if is_bin else "messages")
+        self.client.rpush(queue_key, payload)
+        self.client.expire(queue_key, self.queue_ttl_s)
+        self.touch(key)
+
+    def drain(self, key: str, is_bin: bool) -> list:
+        queue_key = self._key(key, "bin_messages" if is_bin else "messages")
+        messages = []
+        while True:
+            payload = self.client.lpop(queue_key)
+            if payload is None:
+                break
+            messages.append(payload)
+        self.touch(key)
+        return messages
+
+
 class HiveMindHttpHandler(web.RequestHandler):
     """Base handler for HTTP requests."""
     hm_protocol = None
+    replica_id = gethostname()
+    session_backend = "memory"
+    redis_state: Optional[RedisHttpSessionState] = None
 
     # Class-level properties for managing client state and message queues
     clients: Dict[str, HiveMindClientConnection] = {}
     undelivered: Dict[str, Queue] = defaultdict(Queue)  # Non-binary messages
     undelivered_bin: Dict[str, Queue] = defaultdict(Queue)  # Binary messages
     db_sync = ClientDatabaseSync()
+
+    @classmethod
+    def configure_session_state(cls, config: Dict[str, Any]) -> None:
+        backend = (
+            config.get("session_backend")
+            or os.environ.get("HIVEMIND_HTTP_SESSION_BACKEND")
+            or "memory"
+        ).strip().lower()
+        cls.replica_id = str(
+            config.get("replica_id")
+            or os.environ.get("HIVEMIND_HTTP_REPLICA_ID")
+            or gethostname()
+        )
+        if backend == "redis":
+            redis_url = (
+                config.get("session_redis_url")
+                or config.get("redis_url")
+                or os.environ.get("HIVEMIND_HTTP_REDIS_URL")
+                or os.environ.get("REDIS_URL")
+                or ""
+            )
+            cls.redis_state = RedisHttpSessionState(
+                redis_url=redis_url,
+                prefix=str(config.get("session_prefix") or "hivemind-http"),
+                session_ttl_s=_as_int(config.get("session_ttl_s"), 3600),
+                queue_ttl_s=_as_int(config.get("queue_ttl_s"), 300),
+            )
+            cls.session_backend = "redis"
+            LOG.info("HTTP session state backend: redis")
+        elif backend == "memory":
+            cls.redis_state = None
+            cls.session_backend = "memory"
+            LOG.info("HTTP session state backend: memory")
+        else:
+            raise ValueError(f"Unsupported HTTP session backend: {backend}")
+
+    def set_default_headers(self):
+        self.set_header("X-HiveMind-HTTP-Replica", self.replica_id)
+        self.set_header("X-HiveMind-HTTP-Session-Backend", self.session_backend)
+
+    def mark_affinity(self):
+        # Reverse proxies can use this cookie for sticky-session routing when
+        # the memory backend is used. Redis-backed deployments do not need it,
+        # but the header still makes routing visible during troubleshooting.
+        self.set_cookie(
+            "hivemind_http_replica",
+            self.replica_id,
+            httponly=True,
+            samesite="Lax"
+        )
+
+    def mark_connected(self, key: str) -> None:
+        if self.redis_state is not None:
+            self.redis_state.connect(key, self.replica_id)
+
+    def clear_connected(self, key: str) -> None:
+        if self.redis_state is not None:
+            self.redis_state.disconnect(key)
+        self.undelivered.pop(key, None)
+        self.undelivered_bin.pop(key, None)
+        self.clients.pop(key, None)
+
+    def is_connected(self, key: str) -> bool:
+        if key in self.clients:
+            return True
+        if self.redis_state is not None:
+            return self.redis_state.is_connected(key)
+        return False
+
+    def enqueue_message(self, key: str, payload: Union[bytes, str], is_bin: bool) -> None:
+        if is_bin:
+            payload = pybase64.b64encode(payload).decode("utf-8")
+        elif isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+
+        if self.redis_state is not None:
+            self.redis_state.enqueue(key, payload, is_bin)
+        elif is_bin:
+            self.undelivered_bin[key].put(payload)
+        else:
+            self.undelivered[key].put(payload)
+
+    def drain_messages(self, key: str, is_bin: bool) -> list:
+        if self.redis_state is not None:
+            return self.redis_state.drain(key, is_bin)
+
+        messages = []
+        queue = self.undelivered_bin[key] if is_bin else self.undelivered[key]
+        while not queue.empty():
+            try:
+                messages.append(queue.get_nowait())
+            except Exception:
+                # Handle unexpected errors (unlikely with get_nowait)
+                break
+        return messages
+
+    def reconnect_local_client(self, useragent: str, key: str) -> Optional[HiveMindClientConnection]:
+        was_local = key in self.clients
+        client = self.get_client(useragent, key)
+        if client is not None and not was_local:
+            self.hm_protocol.handle_new_client(client)
+        return client
 
     def decode_auth(self):
         auth = self.get_argument("authorization", "")
@@ -195,28 +383,19 @@ class HiveMindHttpHandler(web.RequestHandler):
             return None, None
         userpass_encoded = bytes(auth, encoding="utf-8")
         userpass_decoded = pybase64.b64decode(userpass_encoded).decode("utf-8")
-        return userpass_decoded.split(":")
+        return userpass_decoded.split(":", 1)
 
     def get_client(self, useragent, key, cache=True) -> Optional[HiveMindClientConnection]:
         if cache and key in self.clients:
             return self.clients[key]
 
-        def do_send(payload: Union[bytes, str], is_bin: bool):
-            if is_bin:
-                payload = pybase64.b64encode(payload).decode("utf-8")
-                self.undelivered_bin[key].put(payload)
-            else:
-                self.undelivered[key].put(payload)
-
         def do_disconnect():
-            self.undelivered.pop(key, None)
-            self.undelivered_bin.pop(key, None)
-            self.clients.pop(key, None)
+            self.clear_connected(key)
 
         client = HiveMindClientConnection(
             key=key,
             disconnect=do_disconnect,
-            send_msg=do_send,
+            send_msg=lambda payload, is_bin: self.enqueue_message(key, payload, is_bin),
             sess=Session(session_id="default"),  # will be re-assigned once client sends handshake
             name=useragent,
             hm_protocol=self.hm_protocol
@@ -257,7 +436,12 @@ class ConnectHandler(HiveMindHttpHandler):
                 self.write({"error": "Missing authorization"})
                 return
 
+            was_local = key in self.clients
             client = self.get_client(useragent, key)
+            if client is None:
+                self.set_status(403)
+                self.write({"error": "Invalid authorization"})
+                return
 
             if (
                     not client.crypto_key
@@ -272,7 +456,10 @@ class ConnectHandler(HiveMindHttpHandler):
                 self.hm_protocol.handle_invalid_protocol_version(client)
                 return
 
-            self.hm_protocol.handle_new_client(client)
+            if not was_local:
+                self.hm_protocol.handle_new_client(client)
+            self.mark_connected(key)
+            self.mark_affinity()
             self.write({"status": "Connected"})
         except Exception as e:
             LOG.error(f"Connection failed: {e}")
@@ -293,6 +480,11 @@ class DisconnectHandler(HiveMindHttpHandler):
                 LOG.info(f"disconnecting client: {client.peer}")
                 self.hm_protocol.handle_client_disconnected(client)
                 self.write({"status": "Disconnected"})
+            elif self.is_connected(key):
+                # The client was connected on another replica. Clear the
+                # shared session so subsequent polls stop finding it.
+                self.clear_connected(key)
+                self.write({"status": "Disconnected"})
             else:
                 self.write({"error": "Already Disconnected"})
         except Exception as e:
@@ -309,11 +501,15 @@ class SendMessageHandler(HiveMindHttpHandler):
                 self.write({"error": "Missing authorization"})
                 return
             # refuse if connect wasnt called first
-            if key not in HiveMindHttpHandler.clients:
+            if not self.is_connected(key):
                 self.write({"error": "Client is not connected"})
                 return
 
-            client = self.get_client(useragent, key)
+            client = self.reconnect_local_client(useragent, key)
+            if client is None:
+                self.set_status(403)
+                self.write({"error": "Invalid authorization"})
+                return
 
             message = self.get_argument("message", "")
             if not message:
@@ -348,21 +544,11 @@ class GetMessagesHandler(HiveMindHttpHandler):
                 return
 
             # refuse if connect wasnt called first
-            if key not in HiveMindHttpHandler.clients:
+            if not self.is_connected(key):
                 self.write({"error": "Client is not connected"})
                 return
 
-            messages = []
-            queue = HiveMindHttpHandler.undelivered[key]
-
-            # Retrieve all messages from the queue
-            while not queue.empty():
-                try:
-                    message = queue.get_nowait()
-                    messages.append(message)
-                except Exception:
-                    # Handle unexpected errors (unlikely with get_nowait)
-                    break
+            messages = self.drain_messages(key, is_bin=False)
             self.write({"status": "messages retrieved", "messages": messages})
         except Exception as e:
             LOG.error(f"Retrieving messages failed: {e}")
@@ -380,22 +566,11 @@ class GetBinMessagesHandler(HiveMindHttpHandler):
                 return
 
             # refuse if connect wasnt called first
-            if key not in HiveMindHttpHandler.clients:
+            if not self.is_connected(key):
                 self.write({"error": "Client is not connected"})
                 return
 
-            messages = []
-            queue = HiveMindHttpHandler.undelivered_bin[key]
-
-            # Retrieve all messages from the queue
-            while not queue.empty():
-                try:
-                    message = queue.get_nowait()
-                    messages.append(message)
-                except Exception:
-                    # Handle unexpected errors (unlikely with get_nowait)
-                    break
-
+            messages = self.drain_messages(key, is_bin=True)
             self.write({"status": "messages retrieved", "b64_messages": messages})
         except Exception as e:
             LOG.error(f"Retrieving messages failed: {e}")
