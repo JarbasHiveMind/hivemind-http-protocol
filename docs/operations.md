@@ -44,12 +44,17 @@ Redis mode shares the connected flag and pending reply queues across replicas:
 }
 ```
 
+When the listener already uses `hivemind-redis-db-plugin` for its client
+database, `session_redis_url` may be omitted. The HTTP plugin derives the Redis
+host, port, db, username, password, and a per-hub key prefix from the existing
+server database config.
+
 The same can be configured with environment variables:
 
 | Variable | Purpose |
 |---|---|
 | `HIVEMIND_HTTP_SESSION_BACKEND=redis` | Enable shared HTTP state. |
-| `HIVEMIND_HTTP_REDIS_URL=redis://...` | Redis connection URL. |
+| `HIVEMIND_HTTP_REDIS_URL=redis://...` | Optional override for the Redis connection URL. |
 | `HIVEMIND_HTTP_REPLICA_ID=pod-name` | Optional value exposed in headers/cookie. |
 
 Install the optional dependency when Redis mode is used:

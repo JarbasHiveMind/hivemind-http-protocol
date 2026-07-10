@@ -8,7 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from hivemind_http_protocol import ClientDatabaseSync, HiveMindHttpHandler
+from hivemind_http_protocol import (
+    ClientDatabaseSync,
+    HiveMindHttpHandler,
+    _redis_config_from_server,
+    _redis_url_from_config,
+)
 
 
 class _DB:
@@ -169,3 +174,40 @@ class TestClientDatabaseSync:
         sync.reset()
         sync.sync(db)
         assert db.sync_count == 2
+
+
+def test_redis_url_from_database_config_quotes_credentials():
+    url = _redis_url_from_config({
+        "host": "redis",
+        "port": 6379,
+        "db": 2,
+        "username": "user:name",
+        "password": "p@ss/word",
+    })
+    assert url == "redis://user%3Aname:p%40ss%2Fword@redis:6379/2"
+
+
+def test_redis_config_from_server_returns_only_redis_backend(monkeypatch):
+    monkeypatch.setattr(
+        "hivemind_http_protocol.get_server_config",
+        lambda: {
+            "database": {
+                "module": "hivemind-redis-db-plugin",
+                "hivemind-redis-db-plugin": {"host": "redis", "port": 6379},
+            },
+        },
+    )
+    assert _redis_config_from_server() == {"host": "redis", "port": 6379}
+
+
+def test_redis_config_from_server_ignores_non_redis_backend(monkeypatch):
+    monkeypatch.setattr(
+        "hivemind_http_protocol.get_server_config",
+        lambda: {
+            "database": {
+                "module": "hivemind-sqlite-db-plugin",
+                "hivemind-sqlite-db-plugin": {"name": "clients"},
+            },
+        },
+    )
+    assert _redis_config_from_server() == {}

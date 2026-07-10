@@ -12,6 +12,7 @@ from os import makedirs
 from os.path import exists, join
 from socket import gethostname
 from typing import Dict, Any, Optional, Tuple, Union
+from urllib.parse import quote
 
 import pybase64
 from OpenSSL import crypto
@@ -24,9 +25,12 @@ from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 
 from hivemind_bus_client.message import HiveMessageType
 try:
-    from hivemind_core.config import runtime_password_min_bits
+    from hivemind_core.config import get_server_config, runtime_password_min_bits
 except ImportError:  # released hivemind-core without the helper
     import os
+
+    def get_server_config():
+        return {}
 
     def runtime_password_min_bits():
         return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
@@ -46,6 +50,36 @@ def _as_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _redis_url_from_config(config: Dict[str, Any]) -> str:
+    host = config.get("host")
+    port = config.get("port", 6379)
+    db = config.get("db", 0)
+    if not host:
+        return ""
+    username = config.get("username")
+    password = config.get("password")
+    if username and password:
+        auth = f"{quote(str(username), safe='')}:{quote(str(password), safe='')}@"
+    elif password:
+        auth = f":{quote(str(password), safe='')}@"
+    else:
+        auth = ""
+    return f"redis://{auth}{host}:{port}/{db}"
+
+
+def _redis_config_from_server() -> Dict[str, Any]:
+    try:
+        database = get_server_config().get("database", {})
+    except Exception as exc:
+        LOG.warning("Could not read HiveMind server database config: %s", exc)
+        return {}
+    module = database.get("module")
+    config = database.get(module, {}) if module else {}
+    if module != "hivemind-redis-db-plugin":
+        return {}
+    return dict(config)
 
 
 @dataclasses.dataclass
@@ -287,16 +321,22 @@ class HiveMindHttpHandler(web.RequestHandler):
             or gethostname()
         )
         if backend == "redis":
+            redis_config = _redis_config_from_server()
             redis_url = (
                 config.get("session_redis_url")
                 or config.get("redis_url")
                 or os.environ.get("HIVEMIND_HTTP_REDIS_URL")
                 or os.environ.get("REDIS_URL")
+                or _redis_url_from_config(redis_config)
                 or ""
             )
+            prefix = config.get("session_prefix")
+            if not prefix:
+                db_prefix = redis_config.get("index_prefix") or redis_config.get("prefix")
+                prefix = f"hivemind-http:{db_prefix}" if db_prefix else "hivemind-http"
             cls.redis_state = RedisHttpSessionState(
                 redis_url=redis_url,
-                prefix=str(config.get("session_prefix") or "hivemind-http"),
+                prefix=str(prefix),
                 session_ttl_s=_as_int(config.get("session_ttl_s"), 3600),
                 queue_ttl_s=_as_int(config.get("queue_ttl_s"), 300),
             )
