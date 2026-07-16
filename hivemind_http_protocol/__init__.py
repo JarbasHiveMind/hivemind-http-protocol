@@ -209,9 +209,6 @@ class ClientDatabaseSync:
             self._last_error = None
 
     def sync(self, db: Any) -> None:
-        sync = getattr(db, "sync", None)
-        if not callable(sync):
-            return
         with self._lock:
             now = time.monotonic()
             if self._last_ts is not None and now - self._last_ts < self.debounce_s:
@@ -220,7 +217,7 @@ class ClientDatabaseSync:
                 return
             self._last_ts = now
             try:
-                sync()
+                db.sync()
             except Exception as exc:
                 self._last_error = exc
                 raise

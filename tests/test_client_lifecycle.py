@@ -145,10 +145,6 @@ class TestClientDatabaseSync:
         sync.sync(db)
         assert db.sync_count == 1
 
-    def test_tolerates_backend_without_sync(self):
-        sync = ClientDatabaseSync()
-        sync.sync(SimpleNamespace())  # no .sync attribute
-
     def test_failure_is_replayed_inside_the_window(self):
         boom = RuntimeError("database unreachable")
 
