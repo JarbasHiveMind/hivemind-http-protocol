@@ -16,6 +16,7 @@ import pybase64
 import pytest
 
 from hivemind_http_protocol import (
+    ClientRegistry,
     HiveMindHttpHandler,
     ConnectHandler,
     DisconnectHandler,
@@ -66,9 +67,7 @@ def _make_user(
 
 def _clean_class_state():
     """Reset class-level dicts to prevent test bleed."""
-    HiveMindHttpHandler.clients = {}
-    HiveMindHttpHandler.undelivered = defaultdict(Queue)
-    HiveMindHttpHandler.undelivered_bin = defaultdict(Queue)
+    HiveMindHttpHandler.registry = ClientRegistry()
     HiveMindHttpHandler.session_backend = "memory"
     HiveMindHttpHandler.redis_state = None
     HiveMindHttpHandler.db_sync.reset()
@@ -137,7 +136,7 @@ class TestGetClient:
         HiveMindHttpHandler.hm_protocol = proto
 
         existing = MagicMock()
-        HiveMindHttpHandler.clients["mykey"] = existing
+        HiveMindHttpHandler.registry.clients["mykey"] = existing
 
         h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
         result = h.get_client("agent", "mykey", cache=True)
@@ -178,7 +177,7 @@ class TestGetClient:
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             result = h.get_client("agent", "cachekey", cache=True)
-            assert HiveMindHttpHandler.clients.get("cachekey") is result
+            assert HiveMindHttpHandler.registry.get("cachekey") is result
 
     def test_no_cache_does_not_store(self, master):
         proto = master.hm_protocol
@@ -189,7 +188,7 @@ class TestGetClient:
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             h.get_client("agent", "nocachekey", cache=False)
-            assert "nocachekey" not in HiveMindHttpHandler.clients
+            assert "nocachekey" not in HiveMindHttpHandler.registry
 
     def test_user_with_password_sets_handshake(self, master):
         proto = master.hm_protocol
@@ -226,8 +225,8 @@ class TestGetClient:
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             client = h.get_client("agent", "sendkey", cache=False)
             client.send_msg("hello", is_bin=False)
-            assert not HiveMindHttpHandler.undelivered["sendkey"].empty()
-            assert HiveMindHttpHandler.undelivered["sendkey"].get() == "hello"
+            assert not HiveMindHttpHandler.registry.undelivered["sendkey"].empty()
+            assert HiveMindHttpHandler.registry.undelivered["sendkey"].get() == "hello"
 
     def test_do_send_binary_goes_to_undelivered_bin(self, master):
         proto = master.hm_protocol
@@ -239,7 +238,7 @@ class TestGetClient:
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             client = h.get_client("agent", "binkey", cache=False)
             client.send_msg(b"\x00\x01", is_bin=True)
-            assert not HiveMindHttpHandler.undelivered_bin["binkey"].empty()
+            assert not HiveMindHttpHandler.registry.undelivered_bin["binkey"].empty()
 
     def test_do_disconnect_removes_client_and_queue(self, master):
         proto = master.hm_protocol
@@ -250,10 +249,10 @@ class TestGetClient:
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             client = h.get_client("agent", "disckey", cache=True)
-            HiveMindHttpHandler.undelivered["disckey"].put("msg")
+            HiveMindHttpHandler.registry.undelivered["disckey"].put("msg")
             client.disconnect()
-            assert "disckey" not in HiveMindHttpHandler.clients
-            assert "disckey" not in HiveMindHttpHandler.undelivered
+            assert "disckey" not in HiveMindHttpHandler.registry
+            assert "disckey" not in HiveMindHttpHandler.registry.undelivered
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +334,7 @@ class TestDisconnectHandler:
             with patch.object(proto, "handle_client_disconnected") as mock_disc:
                 h = _make_handler(DisconnectHandler, _encode("agent:disckey"), proto)
                 mock_client = MagicMock()
-                DisconnectHandler.clients["disckey"] = mock_client
+                DisconnectHandler.registry.clients["disckey"] = mock_client
                 _run(h.post())
                 mock_disc.assert_called_once()
                 h.write.assert_called_with({"status": "Disconnected"})
@@ -361,7 +360,7 @@ class TestDisconnectHandler:
             with patch.object(proto, "handle_client_disconnected",
                                side_effect=RuntimeError("fail")):
                 h = _make_handler(DisconnectHandler, _encode("agent:errkey"), proto)
-                DisconnectHandler.clients["errkey"] = MagicMock()
+                DisconnectHandler.registry.clients["errkey"] = MagicMock()
                 _run(h.post())
                 h.set_status.assert_called_with(500)
                 h.write.assert_called_with({"error": "Disconnection failed"})
@@ -391,7 +390,7 @@ class TestSendMessageHandler:
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             h = _make_handler(SendMessageHandler, _encode("agent:msgkey"), proto,
                               extra_get_arg={"message": ""})
-            SendMessageHandler.clients["msgkey"] = MagicMock()
+            SendMessageHandler.registry.clients["msgkey"] = MagicMock()
             _run(h.post())
             h.set_status.assert_called_with(400)
             h.write.assert_called_with({"error": "Missing message"})
@@ -413,7 +412,7 @@ class TestSendMessageHandler:
                 h = _make_handler(SendMessageHandler, _encode("agent:sendmsg"), proto,
                                   extra_get_arg={"message": "encoded_payload"})
                 # inject mock client to avoid re-building from DB
-                SendMessageHandler.clients["sendmsg"] = mock_client
+                SendMessageHandler.registry.clients["sendmsg"] = mock_client
                 _run(h.post())
                 mock_handle.assert_called_once()
                 h.write.assert_called_with({"status": "message sent"})
@@ -461,7 +460,7 @@ class TestSendMessageHandler:
             with patch.object(proto, "handle_message") as mock_handle:
                 h = _make_handler(SendMessageHandler, _encode("agent:audiokey"), proto,
                                   extra_get_arg={"message": "audio_encoded"})
-                SendMessageHandler.clients["audiokey"] = mock_client
+                SendMessageHandler.registry.clients["audiokey"] = mock_client
                 _run(h.post())
                 mock_handle.assert_called_once()
                 h.write.assert_called_with({"status": "message sent"})
@@ -471,7 +470,7 @@ class TestSendMessageHandler:
         with patch.object(proto, "handle_message", side_effect=RuntimeError("boom")):
             h = _make_handler(SendMessageHandler, _encode("agent:errkey"), proto,
                               extra_get_arg={"message": "msg"})
-            SendMessageHandler.clients["errkey"] = MagicMock()
+            SendMessageHandler.registry.clients["errkey"] = MagicMock()
             _run(h.post())
             h.set_status.assert_called_with(500)
             h.write.assert_called_with({"error": "Message sending failed"})
@@ -497,16 +496,16 @@ class TestGetMessagesHandler:
     def test_empty_queue_returns_empty_messages(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetMessagesHandler, _encode("agent:emptykey"), proto)
-        GetMessagesHandler.clients["emptykey"] = MagicMock()
+        GetMessagesHandler.registry.clients["emptykey"] = MagicMock()
         _run(h.get())
         h.write.assert_called_with({"status": "messages retrieved", "messages": []})
 
     def test_queued_messages_are_returned(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetMessagesHandler, _encode("agent:qkey"), proto)
-        GetMessagesHandler.clients["qkey"] = MagicMock()
-        HiveMindHttpHandler.undelivered["qkey"].put("msg1")
-        HiveMindHttpHandler.undelivered["qkey"].put("msg2")
+        GetMessagesHandler.registry.clients["qkey"] = MagicMock()
+        HiveMindHttpHandler.registry.undelivered["qkey"].put("msg1")
+        HiveMindHttpHandler.registry.undelivered["qkey"].put("msg2")
         _run(h.get())
         h.write.assert_called_with({"status": "messages retrieved", "messages": ["msg1", "msg2"]})
 
@@ -526,8 +525,8 @@ class TestGetMessagesHandler:
     def test_get_messages_exception_returns_500(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetMessagesHandler, _encode("agent:exckey"), proto)
-        GetMessagesHandler.clients["exckey"] = MagicMock()
-        with patch.object(HiveMindHttpHandler.undelivered["exckey"], "empty",
+        GetMessagesHandler.registry.clients["exckey"] = MagicMock()
+        with patch.object(HiveMindHttpHandler.registry.undelivered["exckey"], "empty",
                           side_effect=RuntimeError("fail")):
             _run(h.get())
         h.set_status.assert_called_with(500)
@@ -537,12 +536,12 @@ class TestGetMessagesHandler:
         """Inner except: get_nowait raises while queue reports non-empty."""
         proto = master.hm_protocol
         h = _make_handler(GetMessagesHandler, _encode("agent:getnowaitkey"), proto)
-        GetMessagesHandler.clients["getnowaitkey"] = MagicMock()
+        GetMessagesHandler.registry.clients["getnowaitkey"] = MagicMock()
 
         mock_queue = MagicMock()
         mock_queue.empty.return_value = False
         mock_queue.get_nowait.side_effect = RuntimeError("get_nowait fail")
-        HiveMindHttpHandler.undelivered["getnowaitkey"] = mock_queue
+        HiveMindHttpHandler.registry.undelivered["getnowaitkey"] = mock_queue
 
         _run(h.get())
         # The inner except breaks; we still write the (empty) messages list
@@ -569,24 +568,24 @@ class TestGetBinMessagesHandler:
     def test_empty_queue_returns_empty_messages(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetBinMessagesHandler, _encode("agent:binempty"), proto)
-        GetBinMessagesHandler.clients["binempty"] = MagicMock()
+        GetBinMessagesHandler.registry.clients["binempty"] = MagicMock()
         _run(h.get())
         h.write.assert_called_with({"status": "messages retrieved", "b64_messages": []})
 
     def test_queued_bin_messages_are_returned(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetBinMessagesHandler, _encode("agent:binq"), proto)
-        GetBinMessagesHandler.clients["binq"] = MagicMock()
-        HiveMindHttpHandler.undelivered_bin["binq"].put("b64data1")
-        HiveMindHttpHandler.undelivered_bin["binq"].put("b64data2")
+        GetBinMessagesHandler.registry.clients["binq"] = MagicMock()
+        HiveMindHttpHandler.registry.undelivered_bin["binq"].put("b64data1")
+        HiveMindHttpHandler.registry.undelivered_bin["binq"].put("b64data2")
         _run(h.get())
         h.write.assert_called_with({"status": "messages retrieved", "b64_messages": ["b64data1", "b64data2"]})
 
     def test_get_bin_messages_exception_returns_500(self, master):
         proto = master.hm_protocol
         h = _make_handler(GetBinMessagesHandler, _encode("agent:binexc"), proto)
-        GetBinMessagesHandler.clients["binexc"] = MagicMock()
-        with patch.object(HiveMindHttpHandler.undelivered_bin["binexc"], "empty",
+        GetBinMessagesHandler.registry.clients["binexc"] = MagicMock()
+        with patch.object(HiveMindHttpHandler.registry.undelivered_bin["binexc"], "empty",
                           side_effect=RuntimeError("fail")):
             _run(h.get())
         h.set_status.assert_called_with(500)
@@ -596,12 +595,12 @@ class TestGetBinMessagesHandler:
         """Inner except: get_nowait raises while queue reports non-empty."""
         proto = master.hm_protocol
         h = _make_handler(GetBinMessagesHandler, _encode("agent:binnowait"), proto)
-        GetBinMessagesHandler.clients["binnowait"] = MagicMock()
+        GetBinMessagesHandler.registry.clients["binnowait"] = MagicMock()
 
         mock_queue = MagicMock()
         mock_queue.empty.return_value = False
         mock_queue.get_nowait.side_effect = RuntimeError("get_nowait fail")
-        HiveMindHttpHandler.undelivered_bin["binnowait"] = mock_queue
+        HiveMindHttpHandler.registry.undelivered_bin["binnowait"] = mock_queue
 
         _run(h.get())
         h.write.assert_called_with({"status": "messages retrieved", "b64_messages": []})

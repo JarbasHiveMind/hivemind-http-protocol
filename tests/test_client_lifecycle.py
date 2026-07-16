@@ -64,9 +64,7 @@ def _handler(db):
 
 @pytest.fixture(autouse=True)
 def _reset_handler_state():
-    HiveMindHttpHandler.clients.clear()
-    HiveMindHttpHandler.undelivered.clear()
-    HiveMindHttpHandler.undelivered_bin.clear()
+    HiveMindHttpHandler.registry.clear()
     HiveMindHttpHandler.session_backend = "memory"
     HiveMindHttpHandler.redis_state = None
     HiveMindHttpHandler.db_sync.reset()
@@ -124,16 +122,16 @@ def test_disconnect_drops_both_message_queues():
 
     client.send_msg("hello", False)
     client.send_msg(b"\x00binary", True)
-    assert "good" in HiveMindHttpHandler.undelivered
-    assert "good" in HiveMindHttpHandler.undelivered_bin
+    assert "good" in HiveMindHttpHandler.registry.undelivered
+    assert "good" in HiveMindHttpHandler.registry.undelivered_bin
 
     client.disconnect()
 
-    assert "good" not in HiveMindHttpHandler.clients
-    assert "good" not in HiveMindHttpHandler.undelivered
+    assert "good" not in HiveMindHttpHandler.registry
+    assert "good" not in HiveMindHttpHandler.registry.undelivered
     # undelivered_bin used to leak the queue and its payloads for the life
     # of the process, since only undelivered was popped
-    assert "good" not in HiveMindHttpHandler.undelivered_bin
+    assert "good" not in HiveMindHttpHandler.registry.undelivered_bin
 
 
 def test_disconnect_is_idempotent():
