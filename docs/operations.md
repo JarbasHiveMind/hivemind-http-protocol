@@ -35,3 +35,6 @@ available port) for the HTTP transport to avoid conflicts when running both:
 See [hivemind-websocket-protocol: authoring a transport plugin](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/blob/dev/docs/architecture.md#authoring-a-transport-plugin)
 for the `NetworkProtocol` ABC and `pyproject.toml` entry-point registration pattern.
 The MQTT transport in this same cluster is another concrete example.
+
+---
+[← Architecture](architecture.md) · [Home](../README.md)

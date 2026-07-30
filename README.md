@@ -116,6 +116,6 @@ See [docs/api.md](docs/api.md) for full endpoint documentation.
 
 ## Docs
 
-- [docs/api.md](docs/api.md) — REST endpoint reference
-- [docs/architecture.md](docs/architecture.md) — handler lifecycle, polling model, TLS
-- [docs/operations.md](docs/operations.md) — authoring a transport plugin
+- [docs/api.md](docs/api.md): REST endpoint reference
+- [docs/architecture.md](docs/architecture.md): handler lifecycle, polling model, TLS
+- [docs/operations.md](docs/operations.md): authoring a transport plugin

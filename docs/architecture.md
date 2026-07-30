@@ -17,7 +17,7 @@ starts the `IOLoop`.
 ## Polling model
 
 Unlike the WebSocket transport, HTTP connections are not persistent. The server
-maintains an in-memory per-client message queue. Outbound messages (hub → client)
+maintains an in-memory per-client message queue. Outbound messages (server to client)
 are held in the queue until the client polls `/get_messages` or
 `/get_binary_messages`. The client must `/connect` before sending or polling.
 
@@ -28,7 +28,7 @@ environments where long-lived connections are blocked.
 
 | Route | Handler | Purpose |
 |---|---|---|
-| `/connect` | `ConnectHandler` | Opens a session; populates `HiveMindClientConnection`. |
+| `/connect` | `ConnectHandler` | Opens a session and populates `HiveMindClientConnection`. |
 | `/disconnect` | `DisconnectHandler` | Tears down the session. |
 | `/send_message` | `SendMessageHandler` | Accepts an encoded HiveMessage and dispatches it. |
 | `/get_messages` | `GetMessagesHandler` | Returns and drains the text-message queue. |
@@ -44,3 +44,6 @@ cert is auto-generated if the key file does not exist. See
 
 See [hivemind-websocket-protocol: authoring a transport plugin](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/blob/dev/docs/architecture.md#authoring-a-transport-plugin)
 for the `NetworkProtocol` ABC and entry-point registration pattern.
+
+---
+[← API](api.md) · [Home](../README.md) · [Operations →](operations.md)
