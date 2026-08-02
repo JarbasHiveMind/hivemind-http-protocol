@@ -59,7 +59,7 @@ class HiveMindHttpProtocol(NetworkProtocol):
         cert_dir: str = self.config.get("cert_dir") or f"{xdg_data_home()}/hivemind"
         cert_name: str = self.config.get("cert_name") or "hivemind"
         host = self.config.get("host", "0.0.0.0")
-        port = int(self.config.get("port", 5678))
+        port = int(self.config.get("port", 5679))
 
         routes = [
             (r"/connect", ConnectHandler),
