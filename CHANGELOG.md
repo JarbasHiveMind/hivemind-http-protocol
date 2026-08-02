@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.5a1) (2026-08-02)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.4a2...0.0.5a1)
+
+**Merged pull requests:**
+
+- fix: default the HTTP binding to port 5679, not the WebSocket port [\#22](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/22) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.4a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.4a2) (2026-07-30)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.4a1...0.0.4a2)
