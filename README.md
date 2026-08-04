@@ -98,6 +98,21 @@ client.emit(HiveMessage(HiveMessageType.BUS,
 | `ssl` | `false` | Enable TLS. |
 | `cert_dir` | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert/key files. |
 | `cert_name` | `hivemind` | Base filename for cert and key. |
+| `retention_seconds` | `300` | How long an undelivered frame is kept for a peer that has not polled. |
+| `max_queued_frames` | `512` | How many undelivered frames are kept per peer, oldest dropped first. |
+
+### Message retention
+
+There is no server push on this binding, so the server holds a peer's outbound
+frames until the peer polls them. That obligation is bounded, as
+**HIVEMIND-TRANSPORT-1 §4** requires: a frame is dropped once it has waited
+`retention_seconds`, and a peer's queue never holds more than
+`max_queued_frames`. Closing the session drops both queues.
+
+The defaults are five minutes and 512 frames. The reference client polls every
+second, so a peer that keeps polling never loses a frame. Raise
+`retention_seconds` if your peers poll on a much longer cycle; a peer that
+never polls at all is what the bound protects the server from.
 
 ## REST API
 

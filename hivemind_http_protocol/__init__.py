@@ -3,8 +3,8 @@ import dataclasses
 import os
 import os.path
 import random
-from collections import defaultdict
-from queue import Queue
+import time
+from collections import deque
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
@@ -38,6 +38,65 @@ from hivemind_plugin_manager.protocols import NetworkProtocol
 from poorman_handshake import PasswordHandShake
 
 
+# HIVEMIND-TRANSPORT-1 §4 retention bound. The reference client polls every
+# second, so five minutes is well over the "order of magnitude above the poll
+# interval" the spec asks for, and 512 frames is more than a conversational
+# peer accumulates between polls. Both are documented in the README and
+# overridable through the ``retention_seconds`` / ``max_queued_frames``
+# config keys.
+DEFAULT_RETENTION_SECONDS = 300.0
+DEFAULT_MAX_QUEUED_FRAMES = 512
+
+
+class OutboundQueue:
+    """A peer's undelivered frames, held until it polls (TRANSPORT-1 §4).
+
+    This binding has no server push, so the node owes a polling peer its
+    frames. The obligation has to end somewhere: a peer that opens a session
+    and never polls would otherwise grow this queue until the node runs out
+    of memory, and a publicly reachable node does not choose who connects.
+
+    Two bounds end it — a frame older than ``retention_seconds`` is dropped,
+    and the queue never holds more than ``max_frames``, oldest first.
+    """
+
+    def __init__(self, retention_seconds: float, max_frames: int) -> None:
+        self.retention_seconds = retention_seconds
+        self.max_frames = max_frames
+        self._frames: "deque[Tuple[float, Union[bytes, str]]]" = deque()
+
+    def __len__(self) -> int:
+        return len(self._frames)
+
+    def put(self, payload: Union[bytes, str]) -> None:
+        self._expire()
+        dropped = 0
+        while len(self._frames) >= self.max_frames:
+            self._frames.popleft()
+            dropped += 1
+        if dropped:
+            LOG.warning(f"outbound queue full ({self.max_frames} frames), "
+                        f"dropped the {dropped} oldest undelivered frame(s)")
+        self._frames.append((time.monotonic(), payload))
+
+    def drain(self) -> list:
+        """Hand over everything still within the retention bound."""
+        self._expire()
+        frames = [payload for _, payload in self._frames]
+        self._frames.clear()
+        return frames
+
+    def _expire(self) -> None:
+        deadline = time.monotonic() - self.retention_seconds
+        dropped = 0
+        while self._frames and self._frames[0][0] < deadline:
+            self._frames.popleft()
+            dropped += 1
+        if dropped:
+            LOG.warning(f"dropped {dropped} undelivered frame(s) unpolled for "
+                        f"more than {self.retention_seconds}s")
+
+
 @dataclasses.dataclass
 class HiveMindHttpProtocol(NetworkProtocol):
     """
@@ -54,6 +113,10 @@ class HiveMindHttpProtocol(NetworkProtocol):
         LOG.debug(f"HTTP server config: {self.config}")
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
         HiveMindHttpHandler.hm_protocol = self.hm_protocol
+        HiveMindHttpHandler.retention_seconds = float(
+            self.config.get("retention_seconds", DEFAULT_RETENTION_SECONDS))
+        HiveMindHttpHandler.max_queued_frames = int(
+            self.config.get("max_queued_frames", DEFAULT_MAX_QUEUED_FRAMES))
 
         ssl = self.config.get("ssl", False)
         cert_dir: str = self.config.get("cert_dir") or f"{xdg_data_home()}/hivemind"
@@ -139,8 +202,16 @@ class HiveMindHttpHandler(web.RequestHandler):
 
     # Class-level properties for managing client state and message queues
     clients: Dict[str, HiveMindClientConnection] = {}
-    undelivered: Dict[str, Queue] = defaultdict(Queue)  # Non-binary messages
-    undelivered_bin: Dict[str, Queue] = defaultdict(Queue)  # Binary messages
+    undelivered: Dict[str, OutboundQueue] = {}  # Non-binary messages
+    undelivered_bin: Dict[str, OutboundQueue] = {}  # Binary messages
+    retention_seconds: float = DEFAULT_RETENTION_SECONDS
+    max_queued_frames: int = DEFAULT_MAX_QUEUED_FRAMES
+
+    @classmethod
+    def queue_for(cls, store: Dict[str, OutboundQueue], key: str) -> OutboundQueue:
+        if key not in store:
+            store[key] = OutboundQueue(cls.retention_seconds, cls.max_queued_frames)
+        return store[key]
 
     def decode_auth(self):
         auth = self.get_argument("authorization", "")
@@ -158,15 +229,16 @@ class HiveMindHttpHandler(web.RequestHandler):
         def do_send(payload: Union[bytes, str], is_bin: bool):
             if is_bin:
                 payload = pybase64.b64encode(payload).decode("utf-8")
-                self.undelivered_bin[key].put(payload)
+                self.queue_for(self.undelivered_bin, key).put(payload)
             else:
-                self.undelivered[key].put(payload)
+                self.queue_for(self.undelivered, key).put(payload)
 
         def do_disconnect():
-            if key in self.undelivered:
-                self.undelivered.pop(key)
-            if key in self.clients:
-                self.clients.pop(key)
+            # TRANSPORT-1 §4: the session closing ends the retention
+            # obligation for both queues
+            self.undelivered.pop(key, None)
+            self.undelivered_bin.pop(key, None)
+            self.clients.pop(key, None)
 
         client = HiveMindClientConnection(
             key=key,
@@ -304,17 +376,7 @@ class GetMessagesHandler(HiveMindHttpHandler):
                 self.write({"error": "Client is not connected"})
                 return
 
-            messages = []
-            queue = HiveMindHttpHandler.undelivered[key]
-
-            # Retrieve all messages from the queue
-            while not queue.empty():
-                try:
-                    message = queue.get_nowait()
-                    messages.append(message)
-                except Exception as e:
-                    # Handle unexpected errors (unlikely with get_nowait)
-                    break
+            messages = self.queue_for(HiveMindHttpHandler.undelivered, key).drain()
             self.write({"status": "messages retrieved", "messages": messages})
         except Exception as e:
             LOG.error(f"Retrieving messages failed: {e}")
@@ -336,18 +398,7 @@ class GetBinMessagesHandler(HiveMindHttpHandler):
                 self.write({"error": "Client is not connected"})
                 return
 
-            messages = []
-            queue = HiveMindHttpHandler.undelivered_bin[key]
-
-            # Retrieve all messages from the queue
-            while not queue.empty():
-                try:
-                    message = queue.get_nowait()
-                    messages.append(message)
-                except Exception as e:
-                    # Handle unexpected errors (unlikely with get_nowait)
-                    break
-
+            messages = self.queue_for(HiveMindHttpHandler.undelivered_bin, key).drain()
             self.write({"status": "messages retrieved", "b64_messages": messages})
         except Exception as e:
             LOG.error(f"Retrieving messages failed: {e}")
