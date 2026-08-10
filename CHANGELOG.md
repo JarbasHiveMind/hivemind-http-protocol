@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.5a2) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.5a1...0.0.5a2)
+
+**Merged pull requests:**
+
+- refactor: drop dead skill/intent blacklist assignment [\#18](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/18) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.5a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.5a1) (2026-08-02)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.4a2...0.0.5a1)
