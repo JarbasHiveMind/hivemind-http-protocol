@@ -53,6 +53,10 @@ without it, one queue is left behind per access key that ever connects.
 
 Both drops are logged at WARNING.
 
+The bound lives in `RetentionQueue` (one client's outbox) and `RetentionStore` (the
+outboxes, with stale clients swept on each access). `ClientRegistry` owns the connection
+cache and both stores, text and binary, so dropping a client drops all three together.
+
 ## Route handlers
 
 | Route | Handler | Purpose |
