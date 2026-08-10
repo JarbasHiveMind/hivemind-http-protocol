@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.7a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.7a1) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.6a2...0.0.7a1)
+
+**Merged pull requests:**
+
+- fix: bound the HTTP undelivered-message queues \(TRANSPORT-1 §4\) [\#24](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/24) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.6a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.6a2) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.6a1...0.0.6a2)
