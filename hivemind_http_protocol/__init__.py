@@ -225,6 +225,52 @@ class ClientDatabaseSync:
                 self._last_error = None
 
 
+class ClientRegistry:
+    """Connections and their pending messages, keyed by api_key.
+
+    HTTP has no long-lived socket to hang a connection off, so a client
+    outlives any single request and this state is shared by every handler.
+    Tornado builds one handler per request, so an object owning the three
+    collections says that plainly. It is the memory session backend; the
+    redis backend replaces the queues and connected flag, while the
+    HiveMindClientConnection cache stays local to each replica.
+
+    ``pop`` drops all three together. The binary queue used to be left
+    behind, and since ``messages_bin`` recreates it on read, the queue and
+    its payloads survived for the life of the process.
+    """
+
+    def __init__(self):
+        self.clients: Dict[str, HiveMindClientConnection] = {}
+        self.undelivered: Dict[str, Queue] = defaultdict(Queue)
+        self.undelivered_bin: Dict[str, Queue] = defaultdict(Queue)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.clients
+
+    def get(self, key: str) -> Optional[HiveMindClientConnection]:
+        return self.clients.get(key)
+
+    def add(self, key: str, client: HiveMindClientConnection) -> None:
+        self.clients[key] = client
+
+    def pop(self, key: str) -> None:
+        self.clients.pop(key, None)
+        self.undelivered.pop(key, None)
+        self.undelivered_bin.pop(key, None)
+
+    def messages(self, key: str) -> Queue:
+        return self.undelivered[key]
+
+    def messages_bin(self, key: str) -> Queue:
+        return self.undelivered_bin[key]
+
+    def clear(self) -> None:
+        self.clients.clear()
+        self.undelivered.clear()
+        self.undelivered_bin.clear()
+
+
 class RedisHttpSessionState:
     """Shared HTTP session state for multi-replica deployments.
 
@@ -306,10 +352,9 @@ class HiveMindHttpHandler(web.RequestHandler):
     session_backend = "memory"
     redis_state: Optional[RedisHttpSessionState] = None
 
-    # Class-level properties for managing client state and message queues
-    clients: Dict[str, HiveMindClientConnection] = {}
-    undelivered: Dict[str, Queue] = defaultdict(Queue)  # Non-binary messages
-    undelivered_bin: Dict[str, Queue] = defaultdict(Queue)  # Binary messages
+    # In-process client connections and pending message queues (the
+    # memory session backend, and the connection cache for the redis one)
+    registry = ClientRegistry()
     db_sync = ClientDatabaseSync()
 
     @classmethod
@@ -374,12 +419,10 @@ class HiveMindHttpHandler(web.RequestHandler):
     def clear_connected(self, key: str) -> None:
         if self.redis_state is not None:
             self.redis_state.disconnect(key)
-        self.undelivered.pop(key, None)
-        self.undelivered_bin.pop(key, None)
-        self.clients.pop(key, None)
+        self.registry.pop(key)
 
     def is_connected(self, key: str) -> bool:
-        if key in self.clients:
+        if key in self.registry:
             return True
         if self.redis_state is not None:
             return self.redis_state.is_connected(key)
@@ -394,16 +437,16 @@ class HiveMindHttpHandler(web.RequestHandler):
         if self.redis_state is not None:
             self.redis_state.enqueue(key, payload, is_bin)
         elif is_bin:
-            self.undelivered_bin[key].put(payload)
+            self.registry.messages_bin(key).put(payload)
         else:
-            self.undelivered[key].put(payload)
+            self.registry.messages(key).put(payload)
 
     def drain_messages(self, key: str, is_bin: bool) -> list:
         if self.redis_state is not None:
             return self.redis_state.drain(key, is_bin)
 
         messages = []
-        queue = self.undelivered_bin[key] if is_bin else self.undelivered[key]
+        queue = self.registry.messages_bin(key) if is_bin else self.registry.messages(key)
         while not queue.empty():
             try:
                 messages.append(queue.get_nowait())
@@ -413,7 +456,7 @@ class HiveMindHttpHandler(web.RequestHandler):
         return messages
 
     def reconnect_local_client(self, useragent: str, key: str) -> Optional[HiveMindClientConnection]:
-        was_local = key in self.clients
+        was_local = key in self.registry
         client = self.get_client(useragent, key)
         if client is not None and not was_local:
             self.hm_protocol.handle_new_client(client)
@@ -429,8 +472,8 @@ class HiveMindHttpHandler(web.RequestHandler):
         return userpass_decoded.split(":", 1)
 
     def get_client(self, useragent, key, cache=True) -> Optional[HiveMindClientConnection]:
-        if cache and key in self.clients:
-            return self.clients[key]
+        if cache and key in self.registry:
+            return self.registry.get(key)
 
         def do_disconnect():
             self.clear_connected(key)
@@ -467,7 +510,7 @@ class HiveMindHttpHandler(web.RequestHandler):
 
         client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
         if cache:
-            self.clients[key] = client
+            self.registry.add(key, client)
         return client
 
 
@@ -479,7 +522,7 @@ class ConnectHandler(HiveMindHttpHandler):
                 self.write({"error": "Missing authorization"})
                 return
 
-            was_local = key in self.clients
+            was_local = key in self.registry
             client = self.get_client(useragent, key)
             if client is None:
                 self.set_status(403)
@@ -518,7 +561,7 @@ class DisconnectHandler(HiveMindHttpHandler):
             if not key:
                 self.write({"error": "Missing authorization"})
                 return
-            if key in HiveMindHttpHandler.clients:
+            if key in HiveMindHttpHandler.registry:
                 client = self.get_client(useragent, key)
                 LOG.info(f"disconnecting client: {client.peer}")
                 self.hm_protocol.handle_client_disconnected(client)
