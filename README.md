@@ -98,6 +98,8 @@ client.emit(HiveMessage(HiveMessageType.BUS,
 | `ssl` | `false` | Enable TLS. |
 | `cert_dir` | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert/key files. |
 | `cert_name` | `hivemind` | Base filename for cert and key. |
+| `max_undelivered` | `256` | Frames held per client between polls. The oldest is dropped when the cap is reached. |
+| `undelivered_ttl` | `300` | Seconds a client can stop polling before its held frames are discarded. |
 
 ## REST API
 

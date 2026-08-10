@@ -6,12 +6,11 @@ import os.path
 import random
 import threading
 import time
-from collections import defaultdict
-from queue import Queue
+from collections import deque
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Any, Deque, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote
 
 import pybase64
@@ -105,6 +104,12 @@ class HiveMindHttpProtocol(NetworkProtocol):
         LOG.debug(f"HTTP server config: {self.config}")
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
         HiveMindHttpHandler.hm_protocol = self.hm_protocol
+        # TRANSPORT-1 §4 retention bound. Operator-tunable because the right
+        # ceiling depends on how long a satellite may legitimately go quiet.
+        HiveMindHttpHandler.registry = ClientRegistry(
+            maxsize=int(self.config.get("max_undelivered", DEFAULT_MAX_UNDELIVERED)),
+            ttl=float(self.config.get("undelivered_ttl", DEFAULT_UNDELIVERED_TTL)),
+        )
         HiveMindHttpHandler.configure_session_state(self.config)
 
         ssl = self.config.get("ssl", False)
@@ -225,6 +230,88 @@ class ClientDatabaseSync:
                 self._last_error = None
 
 
+DEFAULT_MAX_UNDELIVERED = 256
+DEFAULT_UNDELIVERED_TTL = 300.0
+
+
+class RetentionQueue:
+    """Per-client outbox with a documented retention bound.
+
+    HIVEMIND-TRANSPORT-1 §4 lets an HTTP binding retain frames "until
+    retrieved, until session close, or up to a documented retention bound".
+    This is that bound, in two parts, because one alone does not close the
+    hole:
+
+    - ``maxsize`` caps a single client that connects and never polls. The
+      oldest frame is dropped, not the newest: a client that resumes polling
+      wants the current state of the conversation, and dropping the newest
+      would make the outbox permanently stale.
+    - ``ttl`` caps the *number of clients*. Without it an attacker mints one
+      access key per request and leaves one small queue behind each time.
+
+    Every drop is logged; a silently shortened stream is indistinguishable
+    from a mesh routing bug.
+    """
+
+    def __init__(self, maxsize: int = DEFAULT_MAX_UNDELIVERED,
+                 ttl: float = DEFAULT_UNDELIVERED_TTL) -> None:
+        self.maxsize = maxsize
+        self.ttl = ttl
+        self.touched = time.monotonic()
+        self._items: Deque[Union[bytes, str]] = deque()
+
+    def put(self, payload: Union[bytes, str], key: str = "") -> None:
+        self.touched = time.monotonic()
+        while len(self._items) >= self.maxsize:
+            self._items.popleft()
+            LOG.warning(f"undelivered queue full ({self.maxsize}), "
+                        f"dropped the oldest frame for client {key}")
+        self._items.append(payload)
+
+    def drain(self) -> List[Union[bytes, str]]:
+        self.touched = time.monotonic()
+        items = list(self._items)
+        self._items.clear()
+        return items
+
+    def is_stale(self) -> bool:
+        return time.monotonic() - self.touched > self.ttl
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
+class RetentionStore(Dict[str, RetentionQueue]):
+    """The per-client outboxes, with expired clients swept out."""
+
+    def __init__(self, maxsize: int = DEFAULT_MAX_UNDELIVERED,
+                 ttl: float = DEFAULT_UNDELIVERED_TTL) -> None:
+        super().__init__()
+        self.maxsize = maxsize
+        self.ttl = ttl
+
+    def __missing__(self, key: str) -> RetentionQueue:
+        # Indexing creates the outbox, as the defaultdict this replaced did.
+        # queue_for() is still the way in from request handling, because it
+        # sweeps stale clients first; this only keeps ``store[key]`` from
+        # raising KeyError on a client that has not been written to yet.
+        queue = RetentionQueue(self.maxsize, self.ttl)
+        self[key] = queue
+        return queue
+
+    def queue_for(self, key: str) -> RetentionQueue:
+        self.sweep()
+        if key not in self:
+            self[key] = RetentionQueue(self.maxsize, self.ttl)
+        return self[key]
+
+    def sweep(self) -> None:
+        for key in [k for k, q in self.items() if q.is_stale()]:
+            dropped = len(self.pop(key))
+            LOG.warning(f"client {key} stopped polling for more than "
+                        f"{self.ttl}s, dropped {dropped} undelivered frames")
+
+
 class ClientRegistry:
     """Connections and their pending messages, keyed by api_key.
 
@@ -240,10 +327,11 @@ class ClientRegistry:
     its payloads survived for the life of the process.
     """
 
-    def __init__(self):
+    def __init__(self, maxsize: int = DEFAULT_MAX_UNDELIVERED,
+                 ttl: float = DEFAULT_UNDELIVERED_TTL):
         self.clients: Dict[str, HiveMindClientConnection] = {}
-        self.undelivered: Dict[str, Queue] = defaultdict(Queue)
-        self.undelivered_bin: Dict[str, Queue] = defaultdict(Queue)
+        self.undelivered = RetentionStore(maxsize, ttl)
+        self.undelivered_bin = RetentionStore(maxsize, ttl)
 
     def __contains__(self, key: str) -> bool:
         return key in self.clients
@@ -259,11 +347,11 @@ class ClientRegistry:
         self.undelivered.pop(key, None)
         self.undelivered_bin.pop(key, None)
 
-    def messages(self, key: str) -> Queue:
-        return self.undelivered[key]
+    def messages(self, key: str) -> RetentionQueue:
+        return self.undelivered.queue_for(key)
 
-    def messages_bin(self, key: str) -> Queue:
-        return self.undelivered_bin[key]
+    def messages_bin(self, key: str) -> RetentionQueue:
+        return self.undelivered_bin.queue_for(key)
 
     def clear(self) -> None:
         self.clients.clear()
@@ -445,15 +533,8 @@ class HiveMindHttpHandler(web.RequestHandler):
         if self.redis_state is not None:
             return self.redis_state.drain(key, is_bin)
 
-        messages = []
         queue = self.registry.messages_bin(key) if is_bin else self.registry.messages(key)
-        while not queue.empty():
-            try:
-                messages.append(queue.get_nowait())
-            except Exception:
-                # Handle unexpected errors (unlikely with get_nowait)
-                break
-        return messages
+        return queue.drain()
 
     def reconnect_local_client(self, useragent: str, key: str) -> Optional[HiveMindClientConnection]:
         was_local = key in self.registry

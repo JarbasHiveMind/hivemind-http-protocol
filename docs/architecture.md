@@ -37,6 +37,22 @@ For horizontally scaled listeners, configure `session_backend: redis`. Redis
 stores the connected flag and pending text/binary reply queues, so `/send_message`
 and `/get_messages` may land on different replicas without losing replies.
 
+### Retention bound
+
+A polled transport has no backpressure: nothing tells the server that a client
+stopped reading. HIVEMIND-TRANSPORT-1 §4 therefore permits a documented
+retention bound, and this transport applies two.
+
+A client holds at most `max_undelivered` frames (default 256). Past that the
+oldest frame is dropped, because a client that resumes polling wants the
+current state of the conversation.
+
+A client that does not poll for `undelivered_ttl` seconds (default 300) has its
+whole queue discarded. This bounds the number of queues, not just their size —
+without it, one queue is left behind per access key that ever connects.
+
+Both drops are logged at WARNING.
+
 ## Route handlers
 
 | Route | Handler | Purpose |
