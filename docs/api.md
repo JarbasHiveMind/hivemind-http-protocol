@@ -28,7 +28,8 @@ Register a client session on the server.
 
 **Responses:**
 - `200 OK`: `{"status": "Connected"}`
-- `400 Bad Request`: `{"error": "Missing authorization"}`
+- `200 OK` with an error body: `{"error": "Missing authorization"}` — the handler
+  writes the error without setting a status, so the code stays 200
 - `403 Forbidden`: `{"error": "Invalid authorization"}` when the access key is not known.
 - `500 Internal Server Error`: `{"error": "Connection failed"}`
 
@@ -44,7 +45,8 @@ Remove a client session from the server.
 **Responses:**
 - `200 OK`: `{"status": "Disconnected"}`
 - `200 OK`: `{"error": "Already Disconnected"}` when no session exists for that key.
-- `400 Bad Request`: `{"error": "Missing authorization"}`
+- `200 OK` with an error body: `{"error": "Missing authorization"}` — the handler
+  writes the error without setting a status, so the code stays 200
 - `500 Internal Server Error`: `{"error": "Disconnection failed"}`
 
 ---
@@ -76,7 +78,8 @@ Poll for pending text messages from the server.
 **Responses:**
 - `200 OK`: `{"status": "messages retrieved", "messages": ["<encoded_message1>", "<encoded_message2>"]}`
 - `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
-- `400 Bad Request`: `{"error": "Missing authorization"}`
+- `200 OK` with an error body: `{"error": "Missing authorization"}` — the handler
+  writes the error without setting a status, so the code stays 200
 - `500 Internal Server Error`: `{"error": "Retrieving messages failed"}`
 
 The `messages` list may be empty if no messages are pending. Clients should
@@ -94,7 +97,8 @@ Poll for pending binary messages from the server (for example, TTS audio).
 **Responses:**
 - `200 OK`: `{"status": "messages retrieved", "b64_messages": ["<base64_message1>", "<base64_message2>"]}`
 - `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
-- `400 Bad Request`: `{"error": "Missing authorization"}`
+- `200 OK` with an error body: `{"error": "Missing authorization"}` — the handler
+  writes the error without setting a status, so the code stays 200
 - `500 Internal Server Error`: `{"error": "Retrieving messages failed"}`
 
 Binary payloads (e.g. TTS WAV data) are Base64-encoded in the response.
