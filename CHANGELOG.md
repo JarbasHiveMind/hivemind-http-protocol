@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.6a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.6a2) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.6a1...0.0.6a2)
+
+**Merged pull requests:**
+
+- refactor: own the per-client HTTP state in ClientRegistry [\#19](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/19) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.6a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.6a1) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.5a2...0.0.6a1)
