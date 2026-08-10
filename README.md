@@ -81,13 +81,21 @@ class MyBinaryCallbacks(BinaryDataCallbacks):
 
 
 client = HiveMindHTTPClient(
+    key="my-access-key",
+    password="my-password",
     host="http://localhost",
     port=5679,
     bin_callbacks=MyBinaryCallbacks(),
 )
+client.connect()   # calls POST /connect and completes the handshake
+client.start()     # background thread that polls for messages
+
 client.emit(HiveMessage(HiveMessageType.BUS,
                         Message("speak:synth", {"utterance": "hello world"})))
 ```
+
+`emit()` raises `ConnectionAbortedError` if `connect()` was not called first, and the
+server answers a poll from an unconnected key with `{"error": "Client is not connected"}`.
 
 ## Configuration reference
 

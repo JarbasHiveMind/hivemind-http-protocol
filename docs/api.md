@@ -43,6 +43,7 @@ Remove a client session from the server.
 
 **Responses:**
 - `200 OK`: `{"status": "Disconnected"}`
+- `200 OK`: `{"error": "Already Disconnected"}` when no session exists for that key.
 - `400 Bad Request`: `{"error": "Missing authorization"}`
 - `500 Internal Server Error`: `{"error": "Disconnection failed"}`
 
@@ -58,7 +59,9 @@ Send a HiveMessage to the server.
 
 **Responses:**
 - `200 OK`: `{"status": "message sent"}`
+- `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
 - `400 Bad Request`: `{"error": "Missing message"}`
+- `403 Forbidden`: `{"error": "Invalid authorization"}`
 - `500 Internal Server Error`: `{"error": "Message sending failed"}`
 
 ---
@@ -71,9 +74,10 @@ Poll for pending text messages from the server.
 - `authorization` (string, required): Base64-encoded `useragent:access_key`.
 
 **Responses:**
-- `200 OK`: `{"messages": ["<encoded_message1>", "<encoded_message2>"]}`
+- `200 OK`: `{"status": "messages retrieved", "messages": ["<encoded_message1>", "<encoded_message2>"]}`
+- `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
 - `400 Bad Request`: `{"error": "Missing authorization"}`
-- `500 Internal Server Error`: `{"error": "Failed to retrieve messages"}`
+- `500 Internal Server Error`: `{"error": "Retrieving messages failed"}`
 
 The `messages` list may be empty if no messages are pending. Clients should
 poll at an appropriate interval (e.g. every 1–5 seconds).
@@ -88,9 +92,10 @@ Poll for pending binary messages from the server (for example, TTS audio).
 - `authorization` (string, required): Base64-encoded `useragent:access_key`.
 
 **Responses:**
-- `200 OK`: `{"messages": ["<base64_message1>", "<base64_message2>"]}`
+- `200 OK`: `{"status": "messages retrieved", "b64_messages": ["<base64_message1>", "<base64_message2>"]}`
+- `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
 - `400 Bad Request`: `{"error": "Missing authorization"}`
-- `500 Internal Server Error`: `{"error": "Failed to retrieve messages"}`
+- `500 Internal Server Error`: `{"error": "Retrieving messages failed"}`
 
 Binary payloads (e.g. TTS WAV data) are Base64-encoded in the response.
 
@@ -99,7 +104,9 @@ Binary payloads (e.g. TTS WAV data) are Base64-encoded in the response.
 The HTTP transport is stateful on the server side: the server buffers outbound
 messages per client session until the client polls `/get_messages` or
 `/get_binary_messages`. Clients must `/connect` before sending or polling,
-and `/disconnect` when done.
+and `/disconnect` when done. A call that skips `/connect` still answers `200`, with
+`{"error": "Client is not connected"}` as the body, so a client must read the body and
+not only the status code.
 
 For real-time voice assistant use cases the WebSocket transport is preferred.
 Use HTTP when persistent TCP connections are not available.
