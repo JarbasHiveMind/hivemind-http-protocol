@@ -41,6 +41,12 @@ class _DB:
 
 class _Protocol:
     identity = SimpleNamespace(private_key=None, site_id="http-site")
+    # HiveMindClientConnection builds its per-connection HandShake from the
+    # protocol's cached RSA identity key rather than re-importing the PEM on
+    # every connection. None is the right stand-in here: these tests never
+    # run a handshake, and a real key would cost a 2048-bit import per test
+    # for nothing.
+    identity_rsa_key = None
 
     def __init__(self, db):
         self.db = db
