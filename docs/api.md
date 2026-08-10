@@ -3,6 +3,11 @@
 All endpoints use HTTP `authorization` as a request parameter (not a header).
 The value is Base64-encoded `useragent:access_key`.
 
+Responses include `X-HiveMind-HTTP-Replica` and
+`X-HiveMind-HTTP-Session-Backend` headers. With the default in-memory session
+backend, clients or reverse proxies should keep one HTTP session on the same
+replica. Redis-backed session state removes that requirement.
+
 ## Authentication
 
 ```
@@ -24,6 +29,7 @@ Register a client session on the server.
 **Responses:**
 - `200 OK`: `{"status": "Connected"}`
 - `400 Bad Request`: `{"error": "Missing authorization"}`
+- `403 Forbidden`: `{"error": "Invalid authorization"}` when the access key is not known.
 - `500 Internal Server Error`: `{"error": "Connection failed"}`
 
 ---

@@ -24,6 +24,19 @@ are held in the queue until the client polls `/get_messages` or
 This model adds latency proportional to the polling interval, but works in
 environments where long-lived connections are blocked.
 
+## Session state
+
+The default session backend is `memory`, which stores connected clients and
+pending replies inside the current process. That is suitable for one listener
+process, or for deployments where the reverse proxy pins every HTTP session to
+the same replica. The server emits `X-HiveMind-HTTP-Replica`,
+`X-HiveMind-HTTP-Session-Backend`, and a `hivemind_http_replica` cookie so a
+proxy can route stickily when desired.
+
+For horizontally scaled listeners, configure `session_backend: redis`. Redis
+stores the connected flag and pending text/binary reply queues, so `/send_message`
+and `/get_messages` may land on different replicas without losing replies.
+
 ## Route handlers
 
 | Route | Handler | Purpose |

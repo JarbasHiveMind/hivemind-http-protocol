@@ -82,7 +82,6 @@ def _spawn_proto(proto, *, timeout=5.0):
     """
     port = int(proto.config["port"])
     host = proto.config.get("host", "127.0.0.1")
-    ready = threading.Event()
 
     def _run():
         import asyncio
