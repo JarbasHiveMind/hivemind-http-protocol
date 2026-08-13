@@ -61,11 +61,28 @@ cache and both stores, text and binary, so dropping a client drops all three tog
 
 | Route | Handler | Purpose |
 |---|---|---|
-| `/connect` | `ConnectHandler` | Opens a session and populates `HiveMindClientConnection`. |
+| `/connect` | `ConnectHandler` | Opens a session and populates `HiveMindClientConnection` from the database row — every ACL field, not a subset (see [ACL field parity](#acl-field-parity) below). |
 | `/disconnect` | `DisconnectHandler` | Tears down the session. |
 | `/send_message` | `SendMessageHandler` | Accepts an encoded HiveMessage and dispatches it. |
 | `/get_messages` | `GetMessagesHandler` | Returns and drains the text-message queue. |
 | `/get_binary_messages` | `GetBinMessagesHandler` | Returns and drains the binary-message queue (Base64). |
+
+## ACL field parity
+
+A node accepts clients over WebSocket and over HTTP, and both transports
+build `HiveMindClientConnection` from the same database row. `ConnectHandler`
+copies every ACL field the WebSocket transport copies: `crypto_key`,
+`allowed_types`, `can_broadcast`, `can_propagate`, `can_escalate`, `is_admin`,
+`intent_blacklist`, `skill_blacklist`. A field either transport leaves out
+keeps the connection dataclass's permissive default instead of the
+database's actual value for that client.
+
+`can_broadcast`, `intent_blacklist`, and `skill_blacklist` were missing from
+this list until the field carried over: `hivemind-core blacklist-broadcast`
+was enforced over WebSocket and a silent no-op over HTTP against the same
+node, and per-client skill/intent blacklists did not apply to an HTTP client
+at all. Any new ACL field added to the client-connection dataclass must be
+copied here too, or the same gap reopens for that field.
 
 ## TLS
 
