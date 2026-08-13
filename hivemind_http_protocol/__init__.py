@@ -582,6 +582,15 @@ class HiveMindHttpHandler(web.RequestHandler):
         client.name = f"{useragent}::{user.client_id}::{user.name}"
         client.crypto_key = user.crypto_key
         client.allowed_types = user.allowed_types
+        # The WebSocket transport copies this too. Leaving it out let the
+        # dataclass default (True) stand, so `hivemind-core blacklist-broadcast`
+        # — a command whose only purpose is to set it False — was silently a
+        # no-op over HTTP while being enforced over WebSocket. Two transports
+        # into one node must reach the same admission decision for the same
+        # database row.
+        client.can_broadcast = user.can_broadcast
+        client.intent_blacklist = user.intent_blacklist
+        client.skill_blacklist = user.skill_blacklist
         client.can_propagate = user.can_propagate
         client.can_escalate = user.can_escalate
         client.is_admin = user.is_admin
