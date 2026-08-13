@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.8a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a1) (2026-08-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.7a3...0.0.8a1)
+
+**Merged pull requests:**
+
+- fix: carry every ACL field from the database onto an HTTP client [\#34](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/34) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.7a3](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.7a3) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.7a2...0.0.7a3)
