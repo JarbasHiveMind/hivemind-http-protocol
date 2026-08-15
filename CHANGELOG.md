@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.8a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a2) (2026-08-15)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a1...0.0.8a2)
+
+**Merged pull requests:**
+
+- docs: add AGENTS.md with per-repo agent conventions [\#36](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/36) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.8a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a1) (2026-08-13)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.7a3...0.0.8a1)
