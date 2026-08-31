@@ -22,8 +22,6 @@ REQUIRED_ACL_FIELDS = {
     "can_propagate",
     "can_escalate",
     "is_admin",
-    "intent_blacklist",
-    "skill_blacklist",
 }
 
 
