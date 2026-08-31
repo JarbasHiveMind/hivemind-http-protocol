@@ -589,8 +589,6 @@ class HiveMindHttpHandler(web.RequestHandler):
         # into one node must reach the same admission decision for the same
         # database row.
         client.can_broadcast = user.can_broadcast
-        client.intent_blacklist = user.intent_blacklist
-        client.skill_blacklist = user.skill_blacklist
         client.can_propagate = user.can_propagate
         client.can_escalate = user.can_escalate
         client.is_admin = user.is_admin
