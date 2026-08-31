@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.8a3](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a3) (2026-08-31)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a2...0.0.8a3)
+
+**Merged pull requests:**
+
+- refactor: drop dead client blacklist copies [\#38](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/38) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.8a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a2) (2026-08-15)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a1...0.0.8a2)
