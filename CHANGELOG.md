@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.10a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.10a1) (2026-09-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.9a1...0.0.10a1)
+
+**Merged pull requests:**
+
+- fix: refresh the conn\_nonce TTL with the session and make first-connect nonce atomic [\#42](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/42) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.9a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.9a1) (2026-09-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a3...0.0.9a1)
