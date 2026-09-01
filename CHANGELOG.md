@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.11a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.11a1) (2026-09-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.10a1...0.0.11a1)
+
+**Merged pull requests:**
+
+- fix: accept an optional close code in the disconnect callback \(widened HiveMind contract\) [\#44](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/44) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.10a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.10a1) (2026-09-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.9a1...0.0.10a1)
