@@ -142,6 +142,16 @@ def test_disconnect_is_idempotent():
     client.disconnect()
 
 
+def test_disconnect_accepts_a_close_code_and_reason():
+    """hivemind-core calls client.disconnect(1008, reason) on handshake
+    rejection; the callback wired in here must not TypeError on that call."""
+    db = _DB(known={"good"})
+    client = _handler(db).get_client("agent", "good")
+    client.disconnect(1008, "invalid credentials")
+
+    assert "good" not in HiveMindHttpHandler.registry
+
+
 class TestClientDatabaseSync:
     def test_debounces_within_window(self):
         db = _DB()

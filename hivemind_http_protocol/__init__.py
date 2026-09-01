@@ -581,7 +581,8 @@ class HiveMindHttpHandler(web.RequestHandler):
         if cache and key in self.registry:
             return self.registry.get(key)
 
-        def do_disconnect():
+        def do_disconnect(code=1000, reason=""):
+            LOG.debug(f"disconnecting client {key} (code={code}, reason={reason})")
             self.clear_connected(key)
 
         client = HiveMindClientConnection(
