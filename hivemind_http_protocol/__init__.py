@@ -404,6 +404,11 @@ class RedisHttpSessionState:
 
     def touch(self, key: str) -> None:
         self.client.expire(self._key(key, "session"), self.session_ttl_s)
+        # the nonce's lifetime must track the session's, otherwise it expires
+        # out from under a live session on redis's independent clock and a
+        # later cache-miss mints a new one mid-session (EXPIRE on a missing
+        # key is a harmless no-op)
+        self.client.expire(self._key(key, "nonce"), self.session_ttl_s)
 
     def is_connected(self, key: str) -> bool:
         return bool(self.client.exists(self._key(key, "session")))
@@ -421,6 +426,19 @@ class RedisHttpSessionState:
 
     def set_nonce(self, key: str, nonce: str) -> None:
         self.client.setex(self._key(key, "nonce"), self.session_ttl_s, nonce)
+
+    def set_nonce_if_absent(self, key: str, nonce: str) -> str:
+        """Atomically mint a nonce, first-writer-wins.
+
+        Two replicas cache-missing on the same client's first-ever connect
+        can both see no stored nonce; a plain read-then-write lets both
+        ``set_nonce``, so the loser keeps serving under a nonce nobody else
+        knows about. ``SET ... NX`` makes the write atomic, and the trailing
+        ``GET`` always returns whichever value actually won the race.
+        """
+        redis_key = self._key(key, "nonce")
+        self.client.set(redis_key, nonce, nx=True, ex=self.session_ttl_s)
+        return self.client.get(redis_key) or nonce
 
     def enqueue(self, key: str, payload: str, is_bin: bool) -> None:
         queue_key = self._key(key, "bin_messages" if is_bin else "messages")
@@ -616,7 +634,10 @@ class HiveMindHttpHandler(web.RequestHandler):
             if stored_nonce:
                 client._conn_nonce = stored_nonce
             else:
-                self.redis_state.set_nonce(key, client.conn_nonce)
+                # first-connect race: another replica may be minting for the
+                # same key at the same time, so the write has to be atomic
+                # and this replica must adopt whichever nonce actually won
+                client._conn_nonce = self.redis_state.set_nonce_if_absent(key, client.conn_nonce)
 
         if cache:
             self.registry.add(key, client)
