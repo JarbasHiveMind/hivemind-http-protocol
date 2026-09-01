@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.9a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.9a1) (2026-09-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a3...0.0.9a1)
+
+**Merged pull requests:**
+
+- fix: persist conn\_nonce across HTTP replicas [\#40](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/40) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.8a3](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.8a3) (2026-08-31)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.8a2...0.0.8a3)
