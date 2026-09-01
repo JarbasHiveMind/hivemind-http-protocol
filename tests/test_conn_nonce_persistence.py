@@ -27,22 +27,36 @@ class _MiniRedis:
 
     def __init__(self):
         self.data = {}
+        self.ttls = {}
+        self.expire_calls = []
 
     def setex(self, key, ttl, value):
         self.data[key] = value
+        self.ttls[key] = ttl
 
     def get(self, key):
         return self.data.get(key)
 
+    def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.data:
+            return None
+        self.data[key] = value
+        if ex is not None:
+            self.ttls[key] = ex
+        return True
+
     def delete(self, *keys):
         for k in keys:
             self.data.pop(k, None)
+            self.ttls.pop(k, None)
 
     def exists(self, key):
         return int(key in self.data)
 
     def expire(self, key, ttl):
-        pass
+        self.expire_calls.append(key)
+        if key in self.data:
+            self.ttls[key] = ttl
 
     def rpush(self, key, value):
         self.data.setdefault(key, []).append(value)
@@ -110,6 +124,10 @@ class _FakeRedisNonceState:
 
     def set_nonce(self, key, nonce):
         self.store[key] = nonce
+
+    def set_nonce_if_absent(self, key, nonce):
+        self.store.setdefault(key, nonce)
+        return self.store[key]
 
     def disconnect(self, key):
         self.store.pop(key, None)
@@ -200,3 +218,56 @@ def test_nonce_cleared_on_disconnect(master):
     assert state.get_nonce("disconnkey") == client.conn_nonce
     state.disconnect("disconnkey")
     assert state.get_nonce("disconnkey") is None
+
+
+def test_touch_refreshes_nonce_ttl_with_session():
+    """A long-lived session kept alive purely by touch() (e.g. polling)
+    must not lose its nonce key on redis's independent clock: touch() has
+    to refresh the nonce TTL too, not just the session TTL."""
+    state = _redis_state()
+    state.set_nonce("k1", "nonce-abc")
+    assert state.client.ttls[state._key("k1", "nonce")] == state.session_ttl_s
+
+    # simulate the nonce TTL having decayed toward expiry
+    state.client.ttls[state._key("k1", "nonce")] = 1
+
+    state.touch("k1")
+
+    assert state._key("k1", "nonce") in state.client.expire_calls
+    assert state.client.ttls[state._key("k1", "nonce")] == state.session_ttl_s
+
+
+def test_set_nonce_if_absent_is_atomic_first_writer_wins():
+    state = _redis_state()
+    won = state.set_nonce_if_absent("k1", "nonce-first")
+    assert won == "nonce-first"
+
+    # a second, concurrent minter loses the race and must adopt the winner
+    lost = state.set_nonce_if_absent("k1", "nonce-second")
+    assert lost == "nonce-first"
+    assert state.get_nonce("k1") == "nonce-first"
+
+
+def test_conn_nonce_atomic_on_concurrent_first_connect(master):
+    """Two replicas racing on the SAME client's first-ever connect, both
+    cache-missing on an empty nonce store, must converge on one nonce
+    rather than each minting and storing its own."""
+    proto = master.hm_protocol
+    user = _make_user()
+    shared_store = {}
+    replica_a = _handler_for_replica(proto, _FakeRedisNonceState(shared_store))
+    replica_b = _handler_for_replica(proto, _FakeRedisNonceState(shared_store))
+
+    orig_get_nonce = _FakeRedisNonceState.get_nonce
+
+    def racing_get_nonce(self, key):
+        # both replicas observe the pre-race empty store before either
+        # writes, simulating a true concurrent read-then-write race
+        return None
+
+    with patch.object(proto.db, "get_client_by_api_key", return_value=user), \
+            patch.object(_FakeRedisNonceState, "get_nonce", racing_get_nonce):
+        client_a = replica_a.get_client("agent", "raceclientkey")
+        client_b = replica_b.get_client("agent", "raceclientkey")
+
+    assert client_a.conn_nonce == client_b.conn_nonce == shared_store["raceclientkey"]
