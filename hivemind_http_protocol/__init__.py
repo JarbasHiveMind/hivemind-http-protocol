@@ -412,8 +412,15 @@ class RedisHttpSessionState:
         self.client.delete(
             self._key(key, "session"),
             self._key(key, "messages"),
-            self._key(key, "bin_messages")
+            self._key(key, "bin_messages"),
+            self._key(key, "nonce")
         )
+
+    def get_nonce(self, key: str) -> Optional[str]:
+        return self.client.get(self._key(key, "nonce"))
+
+    def set_nonce(self, key: str, nonce: str) -> None:
+        self.client.setex(self._key(key, "nonce"), self.session_ttl_s, nonce)
 
     def enqueue(self, key: str, payload: str, is_bin: bool) -> None:
         queue_key = self._key(key, "bin_messages" if is_bin else "messages")
@@ -597,6 +604,20 @@ class HiveMindHttpHandler(web.RequestHandler):
             client.pswd_handshake = PasswordHandShake(user.password, min_bits=runtime_password_min_bits())
 
         client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
+
+        if self.redis_state is not None:
+            # The HiveMindClientConnection cache is local to each replica
+            # (ClientRegistry docstring), but ``conn_nonce`` namespaces the
+            # OVOS session_id (HIVEMIND-BRIDGE-1 §4). A cache miss on a
+            # different replica minting a fresh nonce would make the same
+            # client's same declared session resolve to a different
+            # Layer-1 session per hop, so the nonce has to be shared too.
+            stored_nonce = self.redis_state.get_nonce(key)
+            if stored_nonce:
+                client._conn_nonce = stored_nonce
+            else:
+                self.redis_state.set_nonce(key, client.conn_nonce)
+
         if cache:
             self.registry.add(key, client)
         return client
