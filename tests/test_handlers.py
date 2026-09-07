@@ -285,16 +285,61 @@ class TestConnectHandler:
                 mock_new.assert_called_once()
                 h.write.assert_called_with({"status": "Connected"})
 
+    def test_connect_works_when_core_5x_drops_the_legacy_handshake_flags(self, master):
+        """HiveMind-core 5.x removed handshake_enabled and require_crypto.
+
+        v3 Noise is the sole transport crypto there, always negotiated, so
+        neither flag exists any more. Reading them directly raised
+        AttributeError and every /connect answered 500:
+
+            Connection failed: 'HiveMindListenerProtocol' object has no
+            attribute 'handshake_enabled'
+
+        which left the preview bridge unable to reach its hub at all.
+        """
+        proto = master.hm_protocol
+        user = _make_user(crypto_key=None)
+
+        class _Core5Protocol:
+            """Delegates everything except the two flags 5.x dropped."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                if name in ("handshake_enabled", "require_crypto"):
+                    raise AttributeError(
+                        f"'HiveMindListenerProtocol' object has no attribute '{name}'"
+                    )
+                return getattr(self._inner, name)
+
+        core5 = _Core5Protocol(proto)
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_invalid_protocol_version") as mock_ipv:
+                with patch.object(proto, "handle_new_client") as mock_new:
+                    h = _make_handler(ConnectHandler, _encode("agent:key"), core5)
+                    _run(h.post())
+        # the obsolete guard must not fire, and the client must connect
+        mock_ipv.assert_not_called()
+        mock_new.assert_called_once()
+        h.write.assert_called_with({"status": "Connected"})
+
     def test_no_crypto_key_handshake_disabled_require_crypto_triggers_invalid_protocol(self, master):
         proto = master.hm_protocol
         user = _make_user(crypto_key=None)
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             with patch.object(proto, "handle_invalid_protocol_version") as mock_ipv:
                 with patch.object(proto, "handle_new_client") as mock_new:
+                    # create=True: core 5.x dropped these attributes, so patch
+                    # them onto the class to simulate a 4.x hub whose handshake
+                    # is disabled and pre-shared crypto required -- the legacy
+                    # config where this guard still fires.
                     with patch.object(type(proto), "handshake_enabled",
-                                      new_callable=lambda: property(lambda s: False)):
+                                      new_callable=lambda: property(lambda s: False),
+                                      create=True):
                         with patch.object(type(proto), "require_crypto",
-                                          new_callable=lambda: property(lambda s: True)):
+                                          new_callable=lambda: property(lambda s: True),
+                                          create=True):
                             h = _make_handler(ConnectHandler, _encode("agent:key"), proto)
                             _run(h.post())
                             mock_ipv.assert_called_once()

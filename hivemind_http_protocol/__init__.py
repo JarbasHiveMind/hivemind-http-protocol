@@ -660,10 +660,19 @@ class ConnectHandler(HiveMindHttpHandler):
                 self.write({"error": "Invalid authorization"})
                 return
 
+            # HiveMind-core 5.x dropped both of these: v3 Noise is the sole
+            # transport crypto, always negotiated, so there is no
+            # "handshake disabled" mode and no separate pre-shared crypto
+            # requirement to check. Reading them directly raises
+            # AttributeError on 5.x and every /connect returns 500. The
+            # defaults below describe 5.x, so the guard simply does not fire
+            # there while keeping 4.x behaviour byte for byte.
+            handshake_enabled = getattr(self.hm_protocol, "handshake_enabled", True)
+            require_crypto = getattr(self.hm_protocol, "require_crypto", False)
             if (
                     not client.crypto_key
-                    and not self.hm_protocol.handshake_enabled
-                    and self.hm_protocol.require_crypto
+                    and not handshake_enabled
+                    and require_crypto
             ):
                 LOG.error(
                     "No pre-shared crypto key for client and handshake disabled, "
