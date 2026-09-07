@@ -330,10 +330,16 @@ class TestConnectHandler:
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             with patch.object(proto, "handle_invalid_protocol_version") as mock_ipv:
                 with patch.object(proto, "handle_new_client") as mock_new:
+                    # create=True: core 5.x dropped these attributes, so patch
+                    # them onto the class to simulate a 4.x hub whose handshake
+                    # is disabled and pre-shared crypto required -- the legacy
+                    # config where this guard still fires.
                     with patch.object(type(proto), "handshake_enabled",
-                                      new_callable=lambda: property(lambda s: False)):
+                                      new_callable=lambda: property(lambda s: False),
+                                      create=True):
                         with patch.object(type(proto), "require_crypto",
-                                          new_callable=lambda: property(lambda s: True)):
+                                          new_callable=lambda: property(lambda s: True),
+                                          create=True):
                             h = _make_handler(ConnectHandler, _encode("agent:key"), proto)
                             _run(h.post())
                             mock_ipv.assert_called_once()
