@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.12a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.12a1) (2026-09-07)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.11a1...0.0.12a1)
+
+**Merged pull requests:**
+
+- fix: tolerate core 5.x dropping handshake flags \(supersedes \#46\) [\#47](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/47) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.11a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.11a1) (2026-09-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.10a1...0.0.11a1)
