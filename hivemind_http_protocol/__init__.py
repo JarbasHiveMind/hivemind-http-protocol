@@ -759,7 +759,11 @@ class SendMessageHandler(HiveMindHttpHandler):
             # Without the flag the payload stays a str, the legacy path.
             if self.get_argument("binary", "") == "1":
                 try:
-                    message = pybase64.b64decode(raw)
+                    # validate=True: without it b64decode silently drops
+                    # non-alphabet characters, so "%%%%" would decode to b""
+                    # and slip past this 400 into client.decode(), turning a
+                    # malformed frame into a 500
+                    message = pybase64.b64decode(raw, validate=True)
                 except Exception:
                     self.set_status(400)
                     self.write({"error": "Malformed binary frame"})

@@ -707,6 +707,23 @@ class TestSendMessageHandlerNoiseFrames:
                 h.set_status.assert_called_with(400)
                 h.write.assert_called_with({"error": "Malformed binary frame"})
 
+    def test_non_alphabet_base64_is_a_400_not_a_silent_empty_decode(self, master):
+        """b64decode drops non-alphabet chars unless validate=True: "%%%%"
+        would decode to b"" and reach client.decode(), a 500 instead of 400."""
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message") as mock_handle:
+                h = _make_handler(SendMessageHandler, _encode("agent:pctkey"), proto,
+                                  extra_get_arg={"message": "%%%%", "binary": "1"})
+                SendMessageHandler.registry.clients["pctkey"] = mock_client
+                _run(h.post())
+                mock_client.decode.assert_not_called()
+                mock_handle.assert_not_called()
+                h.set_status.assert_called_with(400)
+                h.write.assert_called_with({"error": "Malformed binary frame"})
+
 
 class TestGetClientCryptoKeyOptional:
     """HiveMind-core 5.x dropped crypto_key from the client model. get_client
