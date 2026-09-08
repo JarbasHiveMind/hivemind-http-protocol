@@ -606,7 +606,12 @@ class HiveMindHttpHandler(web.RequestHandler):
             return None
 
         client.name = f"{useragent}::{user.client_id}::{user.name}"
-        client.crypto_key = user.crypto_key
+        # HiveMind-core 5.x dropped crypto_key from the client model
+        # (v3 Noise derives its PSK from the password), so a 5.x DB
+        # backend has no such attribute and reading it straight raised
+        # AttributeError -- every /connect returned 500. None is right
+        # for 5.x; a 4.x backend still returns the stored value.
+        client.crypto_key = getattr(user, "crypto_key", None)
         client.allowed_types = user.allowed_types
         # The WebSocket transport copies this too. Leaving it out let the
         # dataclass default (True) stand, so `hivemind-core blacklist-broadcast`
@@ -737,13 +742,37 @@ class SendMessageHandler(HiveMindHttpHandler):
                 self.write({"error": "Invalid authorization"})
                 return
 
-            message = self.get_argument("message", "")
-            if not message:
+            raw = self.get_argument("message", "")
+            if not raw:
                 self.set_status(400)
                 self.write({"error": "Missing message"})
                 return
 
+            # A protocol v3 (Noise) session carries every post-handshake
+            # message as a binary Noise transport frame. HTTP has no binary
+            # opcode, so the client base64-encodes the frame and flags it
+            # with ``binary=1``; here it is decoded back to the bytes that
+            # ``HiveMindClientConnection.decode`` requires — passing the str
+            # form straight through made a 5.x listener reject it as a
+            # "non-Noise message received on a protocol v3 session" and drop
+            # the connection, so nothing after the handshake was deliverable.
+            # Without the flag the payload stays a str, the legacy path.
+            if self.get_argument("binary", "") == "1":
+                try:
+                    message = pybase64.b64decode(raw)
+                except Exception:
+                    self.set_status(400)
+                    self.write({"error": "Malformed binary frame"})
+                    return
+            else:
+                message = raw
+
             message = client.decode(message)
+            if message is None:
+                # A chunk of a multi-frame Noise message: buffered for
+                # reassembly, no HiveMessage yet. Do not dispatch None.
+                self.write({"status": "buffered"})
+                return
             if (
                     message.msg_type == HiveMessageType.BUS
                     and message.payload.msg_type == "recognizer_loop:b64_audio"
