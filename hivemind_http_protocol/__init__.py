@@ -136,10 +136,11 @@ class HiveMindHttpProtocol(NetworkProtocol):
             LOG.debug("Using SSL certificate at " + cert_file)
             ssl_options = {"certfile": cert_file, "keyfile": key_file}
             LOG.info(f"HTTPS listener started at port: {port}")
-            application.listen(port, host, ssl_options=ssl_options)
+            application.listen(port, host, ssl_options=ssl_options,
+                               max_body_size=MAX_REQUEST_BODY_BYTES)
         else:
             LOG.info(f"HTTP listener started at port: {port}")
-            application.listen(port, host)
+            application.listen(port, host, max_body_size=MAX_REQUEST_BODY_BYTES)
 
         ioloop.IOLoop.current().start()
 
@@ -310,6 +311,16 @@ class RetentionStore(Dict[str, RetentionQueue]):
             dropped = len(self.pop(key))
             LOG.warning(f"client {key} stopped polling for more than "
                         f"{self.ttl}s, dropped {dropped} undelivered frames")
+
+
+#: Tornado buffers a request body before any handler code runs, and its
+#: default cap is 100 MB. A Noise transport frame carries at most 65000 bytes
+#: of plaintext (about 87 KB once base64-encoded), and larger messages arrive
+#: as several frames, so one request never legitimately needs more than this.
+MAX_REQUEST_BODY_BYTES = 1 << 20
+
+#: Values of the ``binary`` argument that mark a base64-encoded Noise frame.
+BINARY_FLAG_VALUES = ("1", "true", "yes")
 
 
 class ClientRegistry:
@@ -582,8 +593,22 @@ class HiveMindHttpHandler(web.RequestHandler):
             return self.registry.get(key)
 
         def do_disconnect(code=1000, reason=""):
-            LOG.debug(f"disconnecting client {key} (code={code}, reason={reason})")
+            # Over a websocket the socket close reaches the core protocol
+            # through on_close; here nothing closes, so tell the core the
+            # client is gone (callbacks, peer table) before the session goes.
+            # The core's own handle_client_disconnected ends by calling
+            # client.disconnect(), i.e. this function again; popping the
+            # registry entry first makes that second call a no-op instead
+            # of recursing until RecursionError.
+            was_registered = key in self.registry
             self.clear_connected(key)
+            if not was_registered:
+                return
+            LOG.debug(f"disconnecting client {key} (code={code}, reason={reason})")
+            try:
+                self.hm_protocol.handle_client_disconnected(client)
+            except Exception:
+                LOG.exception(f"disconnect callbacks failed for client {key}")
 
         client = HiveMindClientConnection(
             key=key,
@@ -606,7 +631,12 @@ class HiveMindHttpHandler(web.RequestHandler):
             return None
 
         client.name = f"{useragent}::{user.client_id}::{user.name}"
-        client.crypto_key = user.crypto_key
+        # HiveMind-core 5.x dropped crypto_key from the client model
+        # (v3 Noise derives its PSK from the password), so a 5.x DB
+        # backend has no such attribute and reading it straight raised
+        # AttributeError -- every /connect returned 500. None is right
+        # for 5.x; a 4.x backend still returns the stored value.
+        client.crypto_key = getattr(user, "crypto_key", None)
         client.allowed_types = user.allowed_types
         # The WebSocket transport copies this too. Leaving it out let the
         # dataclass default (True) stand, so `hivemind-core blacklist-broadcast`
@@ -704,7 +734,14 @@ class DisconnectHandler(HiveMindHttpHandler):
             if key in HiveMindHttpHandler.registry:
                 client = self.get_client(useragent, key)
                 LOG.info(f"disconnecting client: {client.peer}")
-                self.hm_protocol.handle_client_disconnected(client)
+                # Drop the cached connection even if the protocol callback
+                # raises: a later /connect must run handle_new_client again
+                # (HELLO and the handshake offer), not find a connection
+                # whose Noise session is gone.
+                try:
+                    self.hm_protocol.handle_client_disconnected(client)
+                finally:
+                    self.clear_connected(key)
                 self.write({"status": "Disconnected"})
             elif self.is_connected(key):
                 # The client was connected on another replica. Clear the
@@ -726,8 +763,12 @@ class SendMessageHandler(HiveMindHttpHandler):
             if not key:
                 self.write({"error": "Missing authorization"})
                 return
-            # refuse if connect wasnt called first
+            # refuse if connect wasnt called first. 409 rather than a bare
+            # 200: a client that lost its session (a listener restart, a
+            # session the listener dropped) must be able to tell "reconnect"
+            # from "delivered" by the status alone.
             if not self.is_connected(key):
+                self.set_status(409)
                 self.write({"error": "Client is not connected"})
                 return
 
@@ -737,25 +778,63 @@ class SendMessageHandler(HiveMindHttpHandler):
                 self.write({"error": "Invalid authorization"})
                 return
 
-            message = self.get_argument("message", "")
-            if not message:
+            raw = self.get_argument("message", "")
+            if not raw:
                 self.set_status(400)
                 self.write({"error": "Missing message"})
                 return
 
+            # A protocol v3 (Noise) session carries every post-handshake
+            # message as a binary Noise transport frame. HTTP has no binary
+            # opcode, so the client base64-encodes the frame and flags it
+            # with ``binary=1``; here it is decoded back to the bytes that
+            # ``HiveMindClientConnection.decode`` requires. Without the flag
+            # the payload stays a str, the legacy path.
+            binary = self.get_argument("binary", "").strip().lower() in BINARY_FLAG_VALUES
+            if binary:
+                if getattr(client, "noise_transport", None) is None:
+                    # A frame with nothing to decrypt it: the session was
+                    # lost (a restart on the memory backend, a dropped
+                    # session), so the client must handshake again.
+                    self.set_status(409)
+                    self.write({"error": "No Noise session; reconnect and handshake"})
+                    return
+                try:
+                    # validate=True: without it b64decode silently drops
+                    # non-alphabet characters, so "%%%%" would decode to b""
+                    # and slip past this 400 into client.decode()
+                    message = pybase64.b64decode(raw, validate=True)
+                except ValueError:
+                    self.set_status(400)
+                    self.write({"error": "Malformed binary frame"})
+                    return
+            else:
+                message = raw
+
             message = client.decode(message)
+            if message is None:
+                # A chunk of a multi-frame Noise message: buffered for
+                # reassembly, no HiveMessage yet. Do not dispatch None.
+                self.write({"status": "buffered"})
+                return
             if (
                     message.msg_type == HiveMessageType.BUS
                     and message.payload.msg_type == "recognizer_loop:b64_audio"
             ):
                 LOG.info(f"Received {client.peer} sent base64 audio for STT")
             else:
-                LOG.info(f"Received {client.peer} message: {message}")
+                # the type at info; the envelope only at debug, and lazily:
+                # a decrypted BUS message carries the user's words
+                LOG.info("Received %s message: %s", client.peer, message.msg_type)
+                LOG.debug("Received %s message: %s", client.peer, message)
             self.hm_protocol.handle_message(message, client)
 
             self.write({"status": "message sent"})
         except Exception as e:
-            LOG.error(f"Message sending failed: {e}")
+            # the exception text can carry the payload (a decode error
+            # quotes the offending bytes); the type is what an operator needs
+            LOG.error(f"Message sending failed: {type(e).__name__}")
+            LOG.debug("Message sending failed", exc_info=True)
             self.set_status(500)
             self.write({"error": "Message sending failed"})
 
