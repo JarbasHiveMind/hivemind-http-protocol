@@ -102,7 +102,6 @@ def _make_user(client_id=7, name="nonceclient", is_admin=False):
     u = MagicMock()
     u.client_id = client_id
     u.name = name
-    u.crypto_key = "cryptokey"
     u.allowed_types = []
     u.can_propagate = True
     u.can_escalate = True

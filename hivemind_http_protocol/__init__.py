@@ -606,12 +606,6 @@ class HiveMindHttpHandler(web.RequestHandler):
             return None
 
         client.name = f"{useragent}::{user.client_id}::{user.name}"
-        # HiveMind-core 5.x dropped crypto_key from the client model
-        # (v3 Noise derives its PSK from the password), so a 5.x DB
-        # backend has no such attribute and reading it straight raised
-        # AttributeError -- every /connect returned 500. None is right
-        # for 5.x; a 4.x backend still returns the stored value.
-        client.crypto_key = getattr(user, "crypto_key", None)
         client.allowed_types = user.allowed_types
         # The WebSocket transport copies this too. Leaving it out let the
         # dataclass default (True) stand, so `hivemind-core blacklist-broadcast`
@@ -663,28 +657,6 @@ class ConnectHandler(HiveMindHttpHandler):
             if client is None:
                 self.set_status(403)
                 self.write({"error": "Invalid authorization"})
-                return
-
-            # HiveMind-core 5.x dropped both of these: v3 Noise is the sole
-            # transport crypto, always negotiated, so there is no
-            # "handshake disabled" mode and no separate pre-shared crypto
-            # requirement to check. Reading them directly raises
-            # AttributeError on 5.x and every /connect returns 500. The
-            # defaults below describe 5.x, so the guard simply does not fire
-            # there while keeping 4.x behaviour byte for byte.
-            handshake_enabled = getattr(self.hm_protocol, "handshake_enabled", True)
-            require_crypto = getattr(self.hm_protocol, "require_crypto", False)
-            if (
-                    not client.crypto_key
-                    and not handshake_enabled
-                    and require_crypto
-            ):
-                LOG.error(
-                    "No pre-shared crypto key for client and handshake disabled, "
-                    "but configured to require crypto!"
-                )
-                # clients requiring handshake support might fail here
-                self.hm_protocol.handle_invalid_protocol_version(client)
                 return
 
             if not was_local:

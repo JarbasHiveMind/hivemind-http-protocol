@@ -46,7 +46,6 @@ def _make_user(
     *,
     client_id=42,
     name="testclient",
-    crypto_key="cryptokey",
     allowed_types=None,
     can_propagate=True,
     can_escalate=True,
@@ -56,7 +55,6 @@ def _make_user(
     u = MagicMock()
     u.client_id = client_id
     u.name = name
-    u.crypto_key = crypto_key
     u.allowed_types = allowed_types or []
     u.can_propagate = can_propagate
     u.can_escalate = can_escalate
@@ -164,7 +162,6 @@ class TestGetClient:
             h = HiveMindHttpHandler.__new__(HiveMindHttpHandler)
             result = h.get_client("agent", "validkey", cache=False)
             assert result is not None
-            assert result.crypto_key == user.crypto_key
             assert result.is_admin == user.is_admin
             assert result.can_propagate == user.can_propagate
 
@@ -285,78 +282,7 @@ class TestConnectHandler:
                 mock_new.assert_called_once()
                 h.write.assert_called_with({"status": "Connected"})
 
-    def test_connect_works_when_core_5x_drops_the_legacy_handshake_flags(self, master):
-        """HiveMind-core 5.x removed handshake_enabled and require_crypto.
 
-        v3 Noise is the sole transport crypto there, always negotiated, so
-        neither flag exists any more. Reading them directly raised
-        AttributeError and every /connect answered 500:
-
-            Connection failed: 'HiveMindListenerProtocol' object has no
-            attribute 'handshake_enabled'
-
-        which left the preview bridge unable to reach its hub at all.
-        """
-        proto = master.hm_protocol
-        user = _make_user(crypto_key=None)
-
-        class _Core5Protocol:
-            """Delegates everything except the two flags 5.x dropped."""
-
-            def __init__(self, inner):
-                self._inner = inner
-
-            def __getattr__(self, name):
-                if name in ("handshake_enabled", "require_crypto"):
-                    raise AttributeError(
-                        f"'HiveMindListenerProtocol' object has no attribute '{name}'"
-                    )
-                return getattr(self._inner, name)
-
-        core5 = _Core5Protocol(proto)
-        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
-            with patch.object(proto, "handle_invalid_protocol_version") as mock_ipv:
-                with patch.object(proto, "handle_new_client") as mock_new:
-                    h = _make_handler(ConnectHandler, _encode("agent:key"), core5)
-                    _run(h.post())
-        # the obsolete guard must not fire, and the client must connect
-        mock_ipv.assert_not_called()
-        mock_new.assert_called_once()
-        h.write.assert_called_with({"status": "Connected"})
-
-    def test_no_crypto_key_handshake_disabled_require_crypto_triggers_invalid_protocol(self, master):
-        proto = master.hm_protocol
-        user = _make_user(crypto_key=None)
-        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
-            with patch.object(proto, "handle_invalid_protocol_version") as mock_ipv:
-                with patch.object(proto, "handle_new_client") as mock_new:
-                    # create=True: core 5.x dropped these attributes, so patch
-                    # them onto the class to simulate a 4.x hub whose handshake
-                    # is disabled and pre-shared crypto required -- the legacy
-                    # config where this guard still fires.
-                    with patch.object(type(proto), "handshake_enabled",
-                                      new_callable=lambda: property(lambda s: False),
-                                      create=True):
-                        with patch.object(type(proto), "require_crypto",
-                                          new_callable=lambda: property(lambda s: True),
-                                          create=True):
-                            h = _make_handler(ConnectHandler, _encode("agent:key"), proto)
-                            _run(h.post())
-                            mock_ipv.assert_called_once()
-                            mock_new.assert_not_called()
-
-    def test_connect_exception_returns_500(self, master):
-        proto = master.hm_protocol
-        with patch.object(proto.db, "sync", side_effect=RuntimeError("boom")):
-            h = _make_handler(ConnectHandler, _encode("agent:key"), proto)
-            _run(h.post())
-            h.set_status.assert_called_with(500)
-            h.write.assert_called_with({"error": "Connection failed"})
-
-
-# ---------------------------------------------------------------------------
-# DisconnectHandler
-# ---------------------------------------------------------------------------
 
 class TestDisconnectHandler:
     def test_missing_auth_returns_error(self, master):
@@ -725,23 +651,20 @@ class TestSendMessageHandlerNoiseFrames:
                 h.write.assert_called_with({"error": "Malformed binary frame"})
 
 
-class TestGetClientCryptoKeyOptional:
-    """HiveMind-core 5.x dropped crypto_key from the client model. get_client
-    must tolerate a DB backend whose record has no such attribute, or /connect
-    500s on every request against a 5.x database."""
+class TestGetClientAgainstTheCoreClientModel:
+    """get_client reads only the fields the hivemind-core Client row has."""
 
-    def test_client_without_crypto_key_still_connects(self, master):
+    def test_client_row_without_transport_fields_connects(self, master):
         from types import SimpleNamespace
         proto = master.hm_protocol
-        # the real hivemind-core 5.x Client dataclass, which has no crypto_key
+        # the hivemind-core Client dataclass, field for field
         user = SimpleNamespace(
             client_id=7, name="v5client", allowed_types=[], password=None,
             can_broadcast=True, can_propagate=True, can_escalate=True,
             is_admin=False,
         )
-        assert not hasattr(user, "crypto_key")
         h = _make_handler(HiveMindHttpHandler, _encode("agent:nokey"), proto)
         with patch.object(proto.db, "get_client_by_api_key", return_value=user):
             client = h.get_client("agent", "nokey", cache=False)
         assert client is not None
-        assert client.crypto_key is None
+        assert client.name == "agent::7::v5client"
