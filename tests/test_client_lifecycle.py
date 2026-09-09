@@ -33,7 +33,7 @@ class _DB:
         if key not in self.known:
             return None
         return SimpleNamespace(
-            client_id=1, name="node", crypto_key=None, password=None,
+            client_id=1, name="node", password=None,
             skill_blacklist=[], intent_blacklist=[], allowed_types=["speak"],
             can_propagate=True, can_escalate=True, is_admin=False,
             can_broadcast=True,
