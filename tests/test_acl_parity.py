@@ -16,7 +16,13 @@ import hivemind_http_protocol
 #: at runtime, so the check does not depend on which version happens to be
 #: installed. When a new ACL field is added, add it here.
 REQUIRED_ACL_FIELDS = {
-    "crypto_key",
+    # crypto_key is intentionally absent: it is transport crypto, not an
+    # admission field, and HiveMind-core 5.x removed it from the client model
+    # entirely (v3 Noise derives its PSK from the password). get_client reads
+    # it with getattr so a 5.x DB row without it does not break /connect; a
+    # missing crypto_key is not a weaker door, it is no door. Mechanically,
+    # the regex below only matches ``client.X = user.X`` assignments, which
+    # getattr is not, so listing it here would fail this test.
     "allowed_types",
     "can_broadcast",
     "can_propagate",

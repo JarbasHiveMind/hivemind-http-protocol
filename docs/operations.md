@@ -63,6 +63,14 @@ Install the optional dependency when Redis mode is used:
 pip install 'hivemind-http-protocol[redis]'
 ```
 
+With protocol v3 the Noise session lives in the replica that performed the
+handshake: the CipherStates are per connection and are not in redis. A client
+must therefore reach the same replica for the life of its session (the
+`hivemind_http_replica` cookie or the `X-HiveMind-HTTP-Replica` header), or
+a frame routed to another replica is refused with `409 No Noise session`
+and the client has to handshake again. Redis mode still shares the connected
+flag and the reply queues; it does not make v3 sessions replica-independent.
+
 ## Port selection
 
 The default WebSocket transport uses port `5678`. Use `5679` (or any other

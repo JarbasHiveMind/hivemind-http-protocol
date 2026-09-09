@@ -622,3 +622,126 @@ class TestGetBinMessagesHandler:
         h.set_status.assert_called_with(500)
         h.write.assert_called_with({"error": "Retrieving messages failed"})
 
+
+
+# ---------------------------------------------------------------------------
+# SendMessageHandler: protocol v3 Noise transport frames
+# ---------------------------------------------------------------------------
+
+class TestSendMessageHandlerNoiseFrames:
+    """HTTP has no binary opcode. A v3 session's Noise transport frames travel
+    base64-encoded and flagged ``binary=1``; the handler must hand ``decode``
+    the bytes, since a str is refused as a non-Noise message on a v3 session."""
+
+    def _hive_msg(self):
+        from hivemind_bus_client.message import HiveMessage, HiveMessageType
+        from ovos_bus_client.message import Message
+        return HiveMessage(HiveMessageType.BUS, payload=Message("test_msg", {}))
+
+    def test_binary_flag_hands_decode_the_frame_bytes(self, master):
+        import pybase64
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        mock_client.decode.return_value = self._hive_msg()
+        frame = b"\x00\x01noise-frame\xff"
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message") as mock_handle:
+                h = _make_handler(SendMessageHandler, _encode("agent:noisekey"), proto,
+                                  extra_get_arg={
+                                      "message": pybase64.b64encode(frame).decode("utf-8"),
+                                      "binary": "1",
+                                  })
+                SendMessageHandler.registry.clients["noisekey"] = mock_client
+                _run(h.post())
+                mock_client.decode.assert_called_once_with(frame)
+                mock_handle.assert_called_once()
+                h.write.assert_called_with({"status": "message sent"})
+
+    def test_without_the_flag_the_str_reaches_decode_unchanged(self, master):
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        mock_client.decode.return_value = self._hive_msg()
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message"):
+                h = _make_handler(SendMessageHandler, _encode("agent:legacykey"), proto,
+                                  extra_get_arg={"message": "encoded_payload"})
+                SendMessageHandler.registry.clients["legacykey"] = mock_client
+                _run(h.post())
+                mock_client.decode.assert_called_once_with("encoded_payload")
+
+    def test_a_buffered_chunk_is_acknowledged_but_not_dispatched(self, master):
+        """decode() returns None for a FIRST/MORE chunk of a multi-frame
+        message; dispatching None would crash handle_message."""
+        import pybase64
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        mock_client.decode.return_value = None
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message") as mock_handle:
+                h = _make_handler(SendMessageHandler, _encode("agent:chunkkey"), proto,
+                                  extra_get_arg={
+                                      "message": pybase64.b64encode(b"chunk").decode("utf-8"),
+                                      "binary": "1",
+                                  })
+                SendMessageHandler.registry.clients["chunkkey"] = mock_client
+                _run(h.post())
+                mock_handle.assert_not_called()
+                h.write.assert_called_with({"status": "buffered"})
+                h.set_status.assert_not_called()
+
+    def test_malformed_base64_is_a_400_not_a_500(self, master):
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message") as mock_handle:
+                h = _make_handler(SendMessageHandler, _encode("agent:badkey"), proto,
+                                  extra_get_arg={"message": "abc", "binary": "1"})
+                SendMessageHandler.registry.clients["badkey"] = mock_client
+                _run(h.post())
+                mock_client.decode.assert_not_called()
+                mock_handle.assert_not_called()
+                h.set_status.assert_called_with(400)
+                h.write.assert_called_with({"error": "Malformed binary frame"})
+
+    def test_non_alphabet_base64_is_a_400_not_a_silent_empty_decode(self, master):
+        """b64decode drops non-alphabet chars unless validate=True: "%%%%"
+        would decode to b"" and reach client.decode(), a 500 instead of 400."""
+        proto = master.hm_protocol
+        user = _make_user()
+        mock_client = MagicMock()
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            with patch.object(proto, "handle_message") as mock_handle:
+                h = _make_handler(SendMessageHandler, _encode("agent:pctkey"), proto,
+                                  extra_get_arg={"message": "%%%%", "binary": "1"})
+                SendMessageHandler.registry.clients["pctkey"] = mock_client
+                _run(h.post())
+                mock_client.decode.assert_not_called()
+                mock_handle.assert_not_called()
+                h.set_status.assert_called_with(400)
+                h.write.assert_called_with({"error": "Malformed binary frame"})
+
+
+class TestGetClientCryptoKeyOptional:
+    """HiveMind-core 5.x dropped crypto_key from the client model. get_client
+    must tolerate a DB backend whose record has no such attribute, or /connect
+    500s on every request against a 5.x database."""
+
+    def test_a_client_row_without_crypto_key_still_builds_a_connection(self, master):
+        from types import SimpleNamespace
+        proto = master.hm_protocol
+        # the real hivemind-core 5.x Client dataclass, which has no crypto_key
+        user = SimpleNamespace(
+            client_id=7, name="v5client", allowed_types=[], password=None,
+            can_broadcast=True, can_propagate=True, can_escalate=True,
+            is_admin=False,
+        )
+        assert not hasattr(user, "crypto_key")
+        h = _make_handler(HiveMindHttpHandler, _encode("agent:nokey"), proto)
+        with patch.object(proto.db, "get_client_by_api_key", return_value=user):
+            client = h.get_client("agent", "nokey", cache=False)
+        assert client is not None
+        assert client.crypto_key is None
