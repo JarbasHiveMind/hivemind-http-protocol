@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.13a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.13a1) (2026-09-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.12a1...0.0.13a1)
+
+**Merged pull requests:**
+
+- fix: carry protocol v3 Noise transport frames over HTTP [\#51](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/51) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.12a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.12a1) (2026-09-07)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.11a1...0.0.12a1)
