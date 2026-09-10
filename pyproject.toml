@@ -32,7 +32,7 @@ test = [
     "hivemind-bus-client",
     "ovos-bus-client",
     "ovos-utils",
-    "hivescope",
+    "hivescope>=0.8.5a2",
 ]
 
 [project.urls]
