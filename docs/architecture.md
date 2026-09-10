@@ -71,8 +71,7 @@ cache and both stores, text and binary, so dropping a client drops all three tog
 
 A node accepts clients over WebSocket and over HTTP, and both transports
 build `HiveMindClientConnection` from the same database row. `ConnectHandler`
-copies every ACL field the WebSocket transport copies: `crypto_key`,
-`allowed_types`, `can_broadcast`, `can_propagate`, `can_escalate`, `is_admin`,
+copies every ACL field the WebSocket transport copies: `allowed_types`, `can_broadcast`, `can_propagate`, `can_escalate`, `is_admin`,
 `intent_blacklist`, `skill_blacklist`. A field either transport leaves out
 keeps the connection dataclass's permissive default instead of the
 database's actual value for that client.
