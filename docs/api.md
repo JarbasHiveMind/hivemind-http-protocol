@@ -57,14 +57,20 @@ Send a HiveMessage to the server.
 
 **Parameters:**
 - `authorization` (string, required): Base64-encoded `useragent:access_key`.
-- `message` (string, required): Encoded HiveMessage payload.
+- `message` (string, required): Encoded HiveMessage payload. On a protocol v3 (Noise) session this is one Noise transport frame, base64-encoded with the standard alphabet and padding (`validate=True` decoding: no whitespace, no urlsafe `-_`).
+- `binary` (string, optional): `1`, `true` or `yes` marks `message` as a base64-encoded Noise transport frame. Absent otherwise; the legacy text path is unchanged.
 
 **Responses:**
 - `200 OK`: `{"status": "message sent"}`
-- `200 OK`: `{"error": "Client is not connected"}` when `/connect` was not called first.
+- `200 OK`: `{"status": "buffered"}` — a chunk of a multi-frame Noise message was accepted; the message is dispatched when its last frame arrives.
 - `400 Bad Request`: `{"error": "Missing message"}`
+- `400 Bad Request`: `{"error": "Malformed binary frame"}` — `binary` was set but `message` is not valid base64.
 - `403 Forbidden`: `{"error": "Invalid authorization"}`
+- `409 Conflict`: `{"error": "Client is not connected"}` when `/connect` was not called first or the session was dropped; call `/connect` again.
+- `409 Conflict`: `{"error": "No Noise session; reconnect and handshake"}` — a binary frame arrived on a connection that has no Noise session (the listener restarted, or the session was dropped); call `/connect` again and redo the handshake.
 - `500 Internal Server Error`: `{"error": "Message sending failed"}`
+
+Request bodies are capped at 1 MiB. A Noise transport frame carries at most 65000 bytes of plaintext, so larger messages arrive as several frames and no single request needs more.
 
 ---
 
