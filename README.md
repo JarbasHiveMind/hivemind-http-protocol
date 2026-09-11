@@ -1,32 +1,72 @@
-# HiveMind HTTP Protocol
+# hivemind-http-protocol
 
-The HiveMind HTTP Protocol provides an alternative REST-based implementation for message exchange in the HiveMind ecosystem. 
+REST/HTTP transport plugin for [hivemind-core](https://github.com/JarbasHiveMind/HiveMind-core).
 
+An alternative to the default WebSocket transport. Clients use HTTP polling (POST to send,
+GET to receive) instead of a persistent WebSocket connection. Suitable for environments where
+long-lived TCP connections are not possible (firewalls, IoT gateways, HTTP-only proxies).
 
----
+## Where it fits
 
-## Configuration
+```
+hivemind-core
+  └── hivemind-plugin-manager  (NetworkProtocolFactory loads plugins by entry-point)
+        └── hivemind-http-protocol  ← this repo
+              └── Tornado HTTP server (REST endpoints)
+```
 
-This plugin integrates with the `hivemind-core` framework. It is not a standalone project, and its behavior is controlled by the `hivemind-core` configuration.
+The plugin registers under the `hivemind.network.protocol` entry-point group as
+`hivemind-http-plugin`. It can run alongside the WebSocket transport if both are listed
+in the `network_protocol` config.
 
-To enable and configure the HiveMind HTTP Protocol, update the `network_protocol` entry in the `hivemind-core` configuration file. Below is an example configuration:
+## Install
+
+```bash
+pip install hivemind-http-protocol
+```
+
+## Quickstart
+
+Add to `~/.config/hivemind-core/server.json`:
 
 ```json
-"network_protocol": {
-    "hivemind-websocket-plugin": {
-        "host": "0.0.0.0",
-        "port": 5678
-    },
+{
+  "network_protocol": {
+    "module": "hivemind-http-plugin",
     "hivemind-http-plugin": {
-        "host": "0.0.0.0",
-        "port": 5679
+      "host": "0.0.0.0",
+      "port": 5679
     }
+  }
 }
 ```
 
----
-## Client Library
+Start hivemind-core:
 
+```bash
+hivemind-core listen
+```
+
+### Running alongside WebSocket
+
+Both transports can run at the same time by configuring them both:
+
+```json
+{
+  "network_protocol": {
+    "hivemind-websocket-plugin": {
+      "host": "0.0.0.0",
+      "port": 5678
+    },
+    "hivemind-http-plugin": {
+      "host": "0.0.0.0",
+      "port": 5679
+    }
+  }
+}
+```
+
+### Python client example
 
 ```python
 from hivemind_bus_client.http_client import HiveMindHTTPClient, BinaryDataCallbacks
@@ -34,125 +74,58 @@ from hivemind_bus_client.message import HiveMessage, HiveMessageType
 from ovos_bus_client.message import Message
 
 
-class BinaryDataHandler(BinaryDataCallbacks):
-    def handle_receive_tts(self, bin_data: bytes,
-                           utterance: str,
-                           lang: str,
-                           file_name: str):
-        # we can play it or save to file or whatever
-        print(f"got {len(bin_data)} bytes of TTS audio")
-        print(f"utterance: {utterance}", f"lang: {lang}", f"file_name: {file_name}")
-        # got 33836 bytes of TTS audio
-        # utterance: hello world lang: en-US file_name: 5eb63bbbe01eeed093cb22bb8f5acdc3.wav
-        
-# not passing key etc so it uses hivemind identity file for details
-client = HiveMindHTTPClient(host="http://localhost", port=5679,
-                            bin_callbacks=BinaryDataHandler())
+class MyBinaryCallbacks(BinaryDataCallbacks):
+    def handle_receive_tts(self, bin_data: bytes, utterance: str,
+                           lang: str, file_name: str):
+        print(f"received {len(bin_data)} bytes of TTS for: {utterance}")
+
+
+client = HiveMindHTTPClient(
+    key="my-access-key",
+    password="my-password",
+    host="http://localhost",
+    port=5679,
+    bin_callbacks=MyBinaryCallbacks(),
+)
+client.connect()   # calls POST /connect and completes the handshake
+client.start()     # background thread that polls for messages
 
 client.emit(HiveMessage(HiveMessageType.BUS,
                         Message("speak:synth", {"utterance": "hello world"})))
 ```
 
----
+`emit()` raises `ConnectionAbortedError` if `connect()` was not called first, and the
+server answers a poll from an unconnected key with `{"error": "Client is not connected"}`.
 
-## REST API Documentation
+## Configuration reference
 
-### Authentication
+| Key | Default | Description |
+|---|---|---|
+| `host` | `0.0.0.0` | Bind address. |
+| `port` | `5679` | Listen port. |
+| `ssl` | `false` | Enable TLS. |
+| `cert_dir` | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert/key files. |
+| `cert_name` | `hivemind` | Base filename for cert and key. |
+| `max_undelivered` | `256` | Frames held per client between polls. The oldest is dropped when the cap is reached. |
+| `undelivered_ttl` | `300` | Seconds a client can stop polling before its held frames are discarded. |
 
-Authentication is handled via an HTTP `authorization` parameter in the request. The value should be a Base64-encoded string in the format `useragent:access_key`.
+## REST API
 
-### Endpoints
+Authentication uses an HTTP `authorization` parameter (not a header) containing
+a Base64-encoded `useragent:access_key` string.
 
-#### 1. Connect to the Server
+| Endpoint | Method | Description |
+|---|---|---|
+| `/connect` | POST | Register a client session. Parameters: `authorization`. |
+| `/disconnect` | POST | Remove a client session. Parameters: `authorization`. |
+| `/send_message` | POST | Send a HiveMessage. Parameters: `authorization`, `message`. |
+| `/get_messages` | GET | Poll for pending text messages. Parameters: `authorization`. |
+| `/get_binary_messages` | GET | Poll for pending binary messages (Base64-encoded). Parameters: `authorization`. |
 
-**Endpoint:** `/connect`  
-**Method:** `POST`
+See [docs/api.md](docs/api.md) for full endpoint documentation.
 
-**Request Parameters:**
-- `authorization` (string, mandatory): Base64-encoded `useragent:access_key`.
+## Docs
 
-**Response:**
-- `200 OK`: `{ "status": "Connected" }`
-- `400 Bad Request`: `{ "error": "Missing authorization" }`
-- `500 Internal Server Error`: `{ "error": "Connection failed" }`
-
----
-
-#### 2. Disconnect from the Server
-
-**Endpoint:** `/disconnect`  
-**Method:** `POST`
-
-**Request Parameters:**
-- `authorization` (string, mandatory): Base64-encoded `useragent:access_key`.
-
-**Response:**
-- `200 OK`: `{ "status": "Disconnected" }`
-- `400 Bad Request`: `{ "error": "Missing authorization" }`
-- `500 Internal Server Error`: `{ "error": "Disconnection failed" }`
-
----
-
-#### 3. Send a Message
-
-**Endpoint:** `/send_message`  
-**Method:** `POST`
-
-**Request Parameters:**
-- `authorization` (string, mandatory): Base64-encoded `useragent:access_key`.
-- `message` (string, mandatory): Encoded message payload.
-
-**Response:**
-- `200 OK`: `{ "status": "message sent" }`
-- `400 Bad Request`: `{ "error": "Missing message" }`
-- `500 Internal Server Error`: `{ "error": "Message sending failed" }`
-
----
-
-#### 4. Retrieve Messages
-
-**Endpoint:** `/get_messages`  
-**Method:** `GET`
-
-**Request Parameters:**
-- `authorization` (string, mandatory): Base64-encoded `useragent:access_key`.
-
-**Response:**
-- `200 OK`: `{ "messages": ["message1", "message2"] }`
-- `400 Bad Request`: `{ "error": "Missing authorization" }`
-- `500 Internal Server Error`: `{ "error": "Failed to retrieve messages" }`
-
----
-
-#### 5. Retrieve Binary Messages
-
-**Endpoint:** `/get_binary_messages`  
-**Method:** `GET`
-
-**Request Parameters:**
-- `authorization` (string, mandatory): Base64-encoded `useragent:access_key`.
-
-**Response:**
-- `200 OK`: `{ "messages": ["Base64Message1", "Base64Message2"] }`
-- `400 Bad Request`: `{ "error": "Missing authorization" }`
-- `500 Internal Server Error`: `{ "error": "Failed to retrieve messages" }`
-
----
-
-## Notes
-
-- The `connect` and `disconnect` endpoints enable state management in scenarios where persistent connections are not feasible
-- Binary messages are Base64-encoded to ensure compatibility with REST APIs, which are text-based protocols.
-
-
----
-
-## Contributing
-
-Contributions are welcome! Please submit a pull request or open an issue for bug reports or feature requests.
-
----
-
-## License
-
-This project is licensed under the Apache 2.0 License. See the `LICENSE` file for more details.
+- [docs/api.md](docs/api.md): REST endpoint reference
+- [docs/architecture.md](docs/architecture.md): handler lifecycle, polling model, TLS
+- [docs/operations.md](docs/operations.md): authoring a transport plugin
