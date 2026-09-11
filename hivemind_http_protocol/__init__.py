@@ -1,9 +1,9 @@
 import asyncio
 import dataclasses
+import datetime
 import json
 import os
 import os.path
-import random
 import threading
 import time
 from collections import deque
@@ -14,7 +14,10 @@ from typing import Any, Deque, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote
 
 import pybase64
-from OpenSSL import crypto
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
@@ -166,27 +169,45 @@ class HiveMindHttpProtocol(NetworkProtocol):
         makedirs(cert_dir, exist_ok=True)
 
         if not exists(join(cert_dir, cert_file)) or not exists(join(cert_dir, key_file)):
-            # Create a key pair
-            k = crypto.PKey()
-            k.generate_key(crypto.TYPE_RSA, 2048)
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-            # Create a self-signed certificate
-            cert = crypto.X509()
-            cert.get_subject().C = "PT"
-            cert.get_subject().ST = "Europe"
-            cert.get_subject().L = "Mountains"
-            cert.get_subject().O = "Jarbas AI"
-            cert.get_subject().OU = "Powered by HiveMind"
-            cert.get_subject().CN = gethostname()
-            cert.set_serial_number(random.randint(0, 2000))
-            cert.gmtime_adj_notBefore(0)
-            cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)
-            cert.set_issuer(cert.get_subject())
-            cert.set_pubkey(k)
-            cert.sign(k, "sha256")
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "PT"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Europe"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "Mountains"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Jarbas AI"),
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Powered by HiveMind"),
+                x509.NameAttribute(NameOID.COMMON_NAME, gethostname()),
+            ])
+            now = datetime.datetime.now(datetime.timezone.utc)
+            cert = (
+                x509.CertificateBuilder()
+                .subject_name(subject)
+                .issuer_name(issuer)
+                .public_key(key.public_key())
+                # x509.random_serial_number() draws from the full 20-octet
+                # range the RFC allows. The previous serial was a random
+                # integer below 2000, so two hosts generating a certificate
+                # collided roughly one time in two thousand, and a store
+                # keyed on issuer and serial cannot hold both.
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(now)
+                .not_valid_after(now + datetime.timedelta(days=3650))
+                .sign(key, hashes.SHA256())
+            )
 
-            open(cert_path, "wb").write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-            open(key_path, "wb").write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+            # The private key is written before it is chmod-ed anywhere else,
+            # so the mode is set at creation rather than after: a key that is
+            # world-readable for even an instant is world-readable.
+            with open(os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600),
+                      "wb") as f:
+                f.write(key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ))
 
         return cert_path, key_path
 

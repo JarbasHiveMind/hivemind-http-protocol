@@ -16,7 +16,7 @@ dependencies = [
     "hivemind-plugin-manager",
     "poorman-handshake>=2.0.0a1,<3.0.0",
     "hivemind-core>=5.1.0a2,<6.0.0",
-    "pyOpenSSL",
+    "cryptography",
     "pybase64",
     "hivemind-bus-client",
 ]
