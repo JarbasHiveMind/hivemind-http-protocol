@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.15a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.15a1) (2026-09-11)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.14a1...0.0.15a1)
+
+**Merged pull requests:**
+
+- fix: write the listener TLS key private, and give it a serial that cannot collide [\#56](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/56) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.14a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.14a1) (2026-09-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.13a1...0.0.14a1)
