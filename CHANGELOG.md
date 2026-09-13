@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.16a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.16a1) (2026-09-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.15a1...0.0.16a1)
+
+**Merged pull requests:**
+
+- fix: pin hivescope so the suite runs against a current node [\#55](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/55) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.15a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.15a1) (2026-09-11)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.14a1...0.0.15a1)
