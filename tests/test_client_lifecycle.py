@@ -5,6 +5,7 @@ Targets:
 - do_disconnect() drops both message queues, not just the text one.
 """
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -150,6 +151,21 @@ def test_disconnect_accepts_a_close_code_and_reason():
     client.disconnect(1008, "invalid credentials")
 
     assert "good" not in HiveMindHttpHandler.registry
+
+
+def test_disconnect_reason_with_newline_is_escaped_in_the_debug_log():
+    """A close reason is attacker-influenced free text. A newline in it
+    must not split the DEBUG log record into a forged second line."""
+    db = _DB(known={"good"})
+    client = _handler(db).get_client("agent", "good")
+
+    with patch("hivemind_http_protocol.LOG.debug") as mock_debug:
+        client.disconnect(1008, "rejected\nBcc: attacker@evil.test")
+
+    mock_debug.assert_called_once()
+    logged = mock_debug.call_args.args[0]
+    assert "\nBcc: attacker@evil.test" not in logged
+    assert "\\n" in logged
 
 
 class TestClientDatabaseSync:
