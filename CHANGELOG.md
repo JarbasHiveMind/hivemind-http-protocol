@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.17a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.17a1) (2026-10-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.16a1...0.0.17a1)
+
+**Merged pull requests:**
+
+- fix\(tests\): register the fixtures from tests/, so the suite imports the wheel [\#59](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/59) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.16a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.16a1) (2026-09-13)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.15a1...0.0.16a1)
