@@ -625,7 +625,7 @@ class HiveMindHttpHandler(web.RequestHandler):
             self.clear_connected(key)
             if not was_registered:
                 return
-            LOG.debug(f"disconnecting client {key} (code={code}, reason={reason})")
+            LOG.debug(f"disconnecting client {key} (code={code}, reason={reason!r})")
             try:
                 self.hm_protocol.handle_client_disconnected(client)
             except Exception:
