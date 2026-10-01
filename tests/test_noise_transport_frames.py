@@ -27,7 +27,7 @@ from hivemind_http_protocol import (
     HiveMindHttpHandler,
     SendMessageHandler,
 )
-from tests.test_handlers import _encode, _make_handler, _make_user
+from test_handlers import _encode, _make_handler, _make_user
 
 
 @pytest.fixture(scope="module")
