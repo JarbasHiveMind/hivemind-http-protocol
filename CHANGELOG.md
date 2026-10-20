@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.18a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.18a1) (2026-10-20)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.17a1...0.0.18a1)
+
+**Merged pull requests:**
+
+- fix: make the HTTP outbox thread-safe [\#62](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/62) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.17a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.17a1) (2026-10-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.16a1...0.0.17a1)
