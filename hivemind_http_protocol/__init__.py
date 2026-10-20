@@ -281,26 +281,32 @@ class RetentionQueue:
         self.ttl = ttl
         self.touched = time.monotonic()
         self._items: Deque[Union[bytes, str]] = deque()
+        # Frames arrive from the agent bus thread and from worker threads
+        # while request handlers drain, so every access takes this lock.
+        self._lock = threading.Lock()
 
     def put(self, payload: Union[bytes, str], key: str = "") -> None:
-        self.touched = time.monotonic()
-        while len(self._items) >= self.maxsize:
-            self._items.popleft()
-            LOG.warning(f"undelivered queue full ({self.maxsize}), "
-                        f"dropped the oldest frame for client {key}")
-        self._items.append(payload)
+        with self._lock:
+            self.touched = time.monotonic()
+            while len(self._items) >= self.maxsize:
+                self._items.popleft()
+                LOG.warning(f"undelivered queue full ({self.maxsize}), "
+                            f"dropped the oldest frame for client {key}")
+            self._items.append(payload)
 
     def drain(self) -> List[Union[bytes, str]]:
-        self.touched = time.monotonic()
-        items = list(self._items)
-        self._items.clear()
-        return items
+        with self._lock:
+            self.touched = time.monotonic()
+            items = list(self._items)
+            self._items.clear()
+            return items
 
     def is_stale(self) -> bool:
         return time.monotonic() - self.touched > self.ttl
 
     def __len__(self) -> int:
-        return len(self._items)
+        with self._lock:
+            return len(self._items)
 
 
 class RetentionStore(Dict[str, RetentionQueue]):
@@ -311,27 +317,39 @@ class RetentionStore(Dict[str, RetentionQueue]):
         super().__init__()
         self.maxsize = maxsize
         self.ttl = ttl
+        self._lock = threading.RLock()
 
     def __missing__(self, key: str) -> RetentionQueue:
         # Indexing creates the outbox, as the defaultdict this replaced did.
         # queue_for() is still the way in from request handling, because it
         # sweeps stale clients first; this only keeps ``store[key]`` from
         # raising KeyError on a client that has not been written to yet.
-        queue = RetentionQueue(self.maxsize, self.ttl)
-        self[key] = queue
-        return queue
+        with self._lock:
+            queue = RetentionQueue(self.maxsize, self.ttl)
+            self[key] = queue
+            return queue
 
     def queue_for(self, key: str) -> RetentionQueue:
-        self.sweep()
-        if key not in self:
-            self[key] = RetentionQueue(self.maxsize, self.ttl)
-        return self[key]
+        with self._lock:
+            self.sweep()
+            if key not in self:
+                self[key] = RetentionQueue(self.maxsize, self.ttl)
+            return self[key]
 
     def sweep(self) -> None:
-        for key in [k for k, q in self.items() if q.is_stale()]:
-            dropped = len(self.pop(key))
-            LOG.warning(f"client {key} stopped polling for more than "
-                        f"{self.ttl}s, dropped {dropped} undelivered frames")
+        with self._lock:
+            for key in [k for k, q in self.items() if q.is_stale()]:
+                dropped = len(self.pop(key))
+                LOG.warning(f"client {key} stopped polling for more than "
+                            f"{self.ttl}s, dropped {dropped} undelivered frames")
+
+    def pop(self, key: str, *default: Any) -> Any:
+        with self._lock:
+            return super().pop(key, *default)
+
+    def clear(self) -> None:
+        with self._lock:
+            super().clear()
 
 
 #: Tornado buffers a request body before any handler code runs, and its
