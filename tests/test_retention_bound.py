@@ -10,8 +10,11 @@ These tests pin both halves of the bound — the per-client frame cap and the
 per-client staleness sweep — and the FIFO delivery §2 still requires.
 """
 
+import sys
 import time
 from unittest.mock import patch
+
+import pytest
 
 from ovos_utils.log import LOG
 
@@ -97,3 +100,72 @@ class TestDefaultsAreBounded:
         for i in range(DEFAULT_MAX_UNDELIVERED * 2):
             store.queue_for("client").put(f"frame-{i}")
         assert len(store["client"]) == DEFAULT_MAX_UNDELIVERED
+
+
+class TestConcurrentDelivery:
+    """Frames put from several threads while another thread drains are each
+    delivered exactly once."""
+
+    @pytest.fixture(autouse=True)
+    def fast_thread_switching(self):
+        old = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            yield
+        finally:
+            sys.setswitchinterval(old)
+
+    def test_every_frame_is_delivered_exactly_once(self):
+        import threading
+
+        writers, per_writer = 4, 5000
+        q = RetentionQueue(maxsize=writers * per_writer, ttl=60)
+        expected = {f"w{w}-{i}" for w in range(writers) for i in range(per_writer)}
+        done = threading.Event()
+        delivered = []
+
+        def write(w):
+            for i in range(per_writer):
+                q.put(f"w{w}-{i}")
+
+        def read():
+            while not done.is_set():
+                delivered.extend(q.drain())
+
+        threads = [threading.Thread(target=write, args=(w,)) for w in range(writers)]
+        reader = threading.Thread(target=read)
+        reader.start()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        done.set()
+        reader.join()
+        delivered.extend(q.drain())
+
+        assert len(delivered) == len(expected)
+        assert set(delivered) == expected
+        for w in range(writers):
+            order = [int(f.split("-")[1]) for f in delivered if f.startswith(f"w{w}-")]
+            assert order == list(range(per_writer))
+
+    def test_sweep_and_queue_for_survive_concurrent_churn(self):
+        import threading
+
+        store = RetentionStore(maxsize=4, ttl=0)
+        errors = []
+
+        def churn(n):
+            try:
+                for i in range(2000):
+                    store.queue_for(f"c{n}-{i % 20}").put("x")
+                    store.pop(f"c{n}-{(i + 7) % 20}", None)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=churn, args=(n,)) for n in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
