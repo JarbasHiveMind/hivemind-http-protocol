@@ -1,8 +1,8 @@
 # Changelog
 
-## [0.0.19a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.19a1) (2026-10-21)
+## [0.0.20a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.20a1) (2026-10-21)
 
-[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.18a1...0.0.19a1)
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.18a1...0.0.20a1)
 
 **Merged pull requests:**
 
