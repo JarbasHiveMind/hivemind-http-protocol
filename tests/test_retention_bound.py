@@ -11,14 +11,17 @@ per-client staleness sweep — and the FIFO delivery §2 still requires.
 """
 
 import sys
+import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from ovos_utils.log import LOG
 
-from hivemind_http_protocol import (DEFAULT_MAX_UNDELIVERED, RetentionQueue,
+from hivemind_http_protocol import (DEFAULT_MAX_UNDELIVERED, ClientRegistry,
+                                    HiveMindHttpHandler, RetentionQueue,
                                     RetentionStore)
 
 
@@ -169,3 +172,46 @@ class TestConcurrentDelivery:
         for t in threads:
             t.join()
         assert errors == []
+
+
+class TestEnqueueAgainstSweep:
+    """A frame enqueued while another thread sweeps its outbox is not lost.
+
+    The frame is delivered, or the sweep counts it in its drop log. It never
+    goes into an orphaned queue that nobody reads.
+
+    The sweep runs on a second thread at the one moment that matters: after
+    the producer has found the client's outbox and before it appends. The
+    clock is faked so the outbox is within its TTL for the producer and past
+    it for the sweeper.
+    """
+
+    def test_a_frame_is_delivered_or_counted_when_a_sweep_runs_between_lookup_and_append(self):
+        registry = ClientRegistry(maxsize=10, ttl=10)
+        handler = SimpleNamespace(redis_state=None, registry=registry)
+        clock = [0.0]
+        real_put = RetentionQueue.put
+        sweepers = []
+
+        def put_after_sweep(queue, payload, key=""):
+            def sweeper():
+                clock[0] = 10.5
+                registry.undelivered.sweep()
+
+            other = threading.Thread(target=sweeper)
+            sweepers.append(other)
+            other.start()
+            other.join(timeout=0.5)
+            real_put(queue, payload, key)
+
+        with patch("hivemind_http_protocol.time.monotonic", lambda: clock[0]), \
+                patch.object(LOG, "warning") as warn:
+            registry.messages("sat")
+            with patch.object(RetentionQueue, "put", put_after_sweep):
+                HiveMindHttpHandler.enqueue_message(handler, "sat", "frame", False)
+            for other in sweepers:
+                other.join()
+            delivered = registry.messages("sat").drain()
+        logged = [call.args[0] for call in warn.call_args_list]
+        assert delivered == ["frame"] or any("dropped 1 " in m for m in logged), (
+            delivered, logged)

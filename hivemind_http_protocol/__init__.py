@@ -336,6 +336,16 @@ class RetentionStore(Dict[str, RetentionQueue]):
                 self[key] = RetentionQueue(self.maxsize, self.ttl)
             return self[key]
 
+    def put(self, key: str, payload: bytes | str) -> None:
+        """Append a frame to a client's outbox.
+
+        Finding the outbox and appending to it happen under one hold of the
+        store lock. A sweep or a disconnect on another thread cannot remove
+        the outbox in between and leave the frame in a queue nobody reads.
+        """
+        with self._lock:
+            self.queue_for(key).put(payload, key)
+
     def sweep(self) -> None:
         with self._lock:
             for key in [k for k, q in self.items() if q.is_stale()]:
@@ -396,6 +406,10 @@ class ClientRegistry:
         self.clients.pop(key, None)
         self.undelivered.pop(key, None)
         self.undelivered_bin.pop(key, None)
+
+    def enqueue(self, key: str, payload: bytes | str, is_bin: bool) -> None:
+        store = self.undelivered_bin if is_bin else self.undelivered
+        store.put(key, payload)
 
     def messages(self, key: str) -> RetentionQueue:
         return self.undelivered.queue_for(key)
@@ -599,10 +613,8 @@ class HiveMindHttpHandler(web.RequestHandler):
 
         if self.redis_state is not None:
             self.redis_state.enqueue(key, payload, is_bin)
-        elif is_bin:
-            self.registry.messages_bin(key).put(payload)
         else:
-            self.registry.messages(key).put(payload)
+            self.registry.enqueue(key, payload, is_bin)
 
     def drain_messages(self, key: str, is_bin: bool) -> list:
         if self.redis_state is not None:
