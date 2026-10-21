@@ -70,21 +70,27 @@ class TestStaleClientSweep:
         store.queue_for("active")
         assert "gone" not in store
 
-    def test_an_active_client_survives_the_sweep(self):
-        store = RetentionStore(maxsize=10, ttl=0.2)
-        store.queue_for("active").put("frame")
-        for _ in range(3):
-            time.sleep(0.1)
-            store.queue_for("active").put("frame")
-        assert "active" in store
+    def test_a_client_that_keeps_receiving_but_never_polls_is_evicted(self):
+        clock = [0.0]
+        store = RetentionStore(maxsize=10, ttl=10)
+        with patch("hivemind_http_protocol.time.monotonic", lambda: clock[0]):
+            store.queue_for("deaf").put("frame-0")
+            for tick in range(1, 10):
+                clock[0] = float(tick)
+                store.queue_for("deaf").put(f"frame-{tick}")
+            clock[0] = 11.0
+            store.queue_for("other")
+        assert "deaf" not in store
 
     def test_reading_counts_as_activity(self):
-        store = RetentionStore(maxsize=10, ttl=0.2)
-        store.queue_for("poller").put("frame")
-        for _ in range(3):
-            time.sleep(0.1)
-            store.queue_for("poller").drain()
-        assert "poller" in store
+        clock = [0.0]
+        with patch("hivemind_http_protocol.time.monotonic", lambda: clock[0]):
+            store = RetentionStore(maxsize=10, ttl=10)
+            outbox = store.queue_for("poller")
+            for _ in range(3):
+                outbox.put("frame")
+                clock[0] += 6
+                assert store.queue_for("poller").drain() == ["frame"]
 
     def test_an_eviction_is_logged_rather_than_silent(self):
         store = RetentionStore(maxsize=10, ttl=0.05)
