@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.19a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.19a1) (2026-10-21)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.18a1...0.0.19a1)
+
+**Merged pull requests:**
+
+- fix: restart the outbox TTL on polls only [\#65](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/65) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+- fix: append to the outbox under the store lock [\#64](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/64) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.18a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.18a1) (2026-10-20)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.17a1...0.0.18a1)
