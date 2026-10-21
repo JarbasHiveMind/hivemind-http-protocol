@@ -51,6 +51,9 @@ A client that does not poll for `undelivered_ttl` seconds (default 300) has its
 whole queue discarded. This bounds the number of queues, not just their size —
 without it, one queue is left behind per access key that ever connects.
 
+Keep `undelivered_ttl` at least ten times the poll interval. A poll that arrives
+later finds the queue gone, and under protocol v3 the client must reconnect.
+
 Both drops are logged at WARNING.
 
 The bound lives in `RetentionQueue` (one client's outbox) and `RetentionStore` (the

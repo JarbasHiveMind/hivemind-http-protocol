@@ -270,6 +270,8 @@ class RetentionQueue:
       would make the outbox permanently stale.
     - ``ttl`` caps the *number of clients*. Without it an attacker mints one
       access key per request and leaves one small queue behind each time.
+      Only a poll restarts the clock: a client that stops polling while
+      frames keep arriving is swept like any other.
 
     Every drop is logged; a silently shortened stream is indistinguishable
     from a mesh routing bug.
@@ -287,7 +289,6 @@ class RetentionQueue:
 
     def put(self, payload: Union[bytes, str], key: str = "") -> None:
         with self._lock:
-            self.touched = time.monotonic()
             while len(self._items) >= self.maxsize:
                 self._items.popleft()
                 LOG.warning(f"undelivered queue full ({self.maxsize}), "
