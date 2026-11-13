@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.21a1](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.21a1) (2026-11-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.20a2...0.0.21a1)
+
+**Merged pull requests:**
+
+- fix: escape close reason before logging it \(log forging\) [\#61](https://github.com/JarbasHiveMind/hivemind-http-protocol/pull/61) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.20a2](https://github.com/JarbasHiveMind/hivemind-http-protocol/tree/0.0.20a2) (2026-10-21)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-http-protocol/compare/0.0.20a1...0.0.20a2)
